@@ -6,6 +6,8 @@
 @source "../../../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
+/* Set by the preload script; macOS hides the traffic lights in fullscreen. */
+@custom-variant fullscreen (&:is(.fullscreen *));
 
 @theme inline {
   --color-background: var(--background);

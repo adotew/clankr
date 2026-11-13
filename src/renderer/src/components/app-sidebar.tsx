@@ -61,7 +61,7 @@ export function AppSidebar(props: {
     <Sidebar>
       <SidebarHeader className="pt-0 [-webkit-app-region:drag]">
         {/* Left padding leaves room for the macOS traffic lights. */}
-        <div className="flex h-9 items-center gap-2 pl-18">
+        <div className="flex h-9 items-center gap-2 pl-18 fullscreen:pl-2">
           <SidebarTrigger className="[-webkit-app-region:no-drag]" />
           <span className="text-sm font-medium">Clankr</span>
         </div>

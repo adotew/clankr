@@ -190,6 +190,8 @@ app.whenReady().then(() => {
     titleBarStyle: 'hiddenInset',
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
   })
+  win.on('enter-full-screen', () => win.webContents.send('fullscreen', true))
+  win.on('leave-full-screen', () => win.webContents.send('fullscreen', false))
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
 })

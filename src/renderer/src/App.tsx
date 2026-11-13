@@ -141,7 +141,7 @@ function Reply({ replies, streaming }: { replies: Item[]; streaming: boolean }) 
 function TitleBar() {
   const { open } = useSidebar()
   return (
-    <div className="absolute inset-x-0 top-0 z-10 flex h-9 items-center pl-20 [-webkit-app-region:drag]">
+    <div className="absolute inset-x-0 top-0 z-10 flex h-9 items-center pl-20 fullscreen:pl-3 [-webkit-app-region:drag]">
       {!open && <SidebarTrigger className="[-webkit-app-region:no-drag]" />}
     </div>
   )

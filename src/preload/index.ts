@@ -33,3 +33,5 @@ const api: Api = {
 }
 
 contextBridge.exposeInMainWorld('api', api)
+
+ipcRenderer.on('fullscreen', (_, on: boolean) => document.documentElement.classList.toggle('fullscreen', on))
