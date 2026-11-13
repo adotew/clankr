@@ -18,7 +18,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller'
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar'
 import { Trace } from '@/components/ui/trace'
 import type { AgentEvent, Model, Thread } from '../../shared'
 
@@ -127,6 +127,16 @@ function Reply({ replies, streaming }: { replies: Item[]; streaming: boolean }) 
   )
 }
 
+// Invisible strip for dragging the window; shows the sidebar toggle while the sidebar is hidden.
+function TitleBar() {
+  const { open } = useSidebar()
+  return (
+    <div className="absolute inset-x-0 top-0 z-10 flex h-9 items-center pl-20 [-webkit-app-region:drag]">
+      {!open && <SidebarTrigger className="[-webkit-app-region:no-drag]" />}
+    </div>
+  )
+}
+
 function Confirmation({ permission, onReply }: { permission: Permission; onReply: (allow: boolean) => void }) {
   const { command, file_path, description } = permission.input
   const detail = [command, file_path, description].find((v) => typeof v === 'string') as string | undefined
@@ -206,19 +216,12 @@ export function App() {
   }
 
   const turns = toTurns(items)
-  const title = threads.find((t) => t.id === active?.id)?.title ?? (active ? 'New thread' : 'Clankr')
 
   return (
     <SidebarProvider>
       <AppSidebar threads={threads} active={active} busy={busy} onNew={newThread} onOpen={openThread} />
-      <SidebarInset className="h-svh min-w-0">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3 [-webkit-app-region:drag]">
-          <SidebarTrigger className="[-webkit-app-region:no-drag]" />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{title}</div>
-          </div>
-          {active && <div className="ml-auto truncate text-xs text-muted-foreground">{active.cwd}</div>}
-        </header>
+      <SidebarInset className="relative h-svh min-w-0">
+        <TitleBar />
 
         <MessageScrollerProvider autoScroll>
           <div className="min-h-0 flex-1">
@@ -242,7 +245,7 @@ export function App() {
             ) : (
               <MessageScroller>
                 <MessageScrollerViewport>
-                  <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 py-6">
+                  <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-12 pb-6">
                     {turns.map((turn, i) => {
                       const last = i === turns.length - 1
                       return (

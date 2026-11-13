@@ -10,6 +10,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
 } from '@/components/ui/sidebar'
 import type { Thread } from '../../../shared'
 
@@ -58,8 +59,12 @@ export function AppSidebar(props: {
 
   return (
     <Sidebar>
-      {/* Leaves room for the macOS traffic lights and makes the top bar draggable. */}
-      <SidebarHeader className="pt-10 [-webkit-app-region:drag]">
+      <SidebarHeader className="pt-0 [-webkit-app-region:drag]">
+        {/* Left padding leaves room for the macOS traffic lights. */}
+        <div className="flex h-9 items-center gap-2 pl-18">
+          <SidebarTrigger className="[-webkit-app-region:no-drag]" />
+          <span className="text-sm font-medium">Clankr</span>
+        </div>
         <SidebarMenu className="[-webkit-app-region:no-drag]">
           <SidebarMenuItem>
             <SidebarMenuButton onClick={props.onNew} disabled={busy}>
