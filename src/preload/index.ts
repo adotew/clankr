@@ -2,8 +2,11 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { AgentEvent, Api } from '../shared'
 
 const api: Api = {
-  pickFolder: () => ipcRenderer.invoke('pick-folder'),
-  send: (prompt) => ipcRenderer.invoke('send', prompt),
+  models: () => ipcRenderer.invoke('models'),
+  threads: () => ipcRenderer.invoke('threads'),
+  newThread: () => ipcRenderer.invoke('new-thread'),
+  openThread: (thread) => ipcRenderer.invoke('open-thread', thread),
+  send: (prompt, model) => ipcRenderer.invoke('send', prompt, model),
   stop: () => ipcRenderer.invoke('stop'),
   reply: (id, allow) => ipcRenderer.send('permission', id, allow),
   onEvent: (cb) => {
