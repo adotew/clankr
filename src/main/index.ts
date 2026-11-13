@@ -33,19 +33,19 @@ const toText = (content: unknown): string =>
 
 type Block = { type: string; [k: string]: unknown }
 
-// Converts a Messages API message into UI events. User text is only included for history,
-// because live prompts are already shown by the renderer.
-function toEvents(type: string, message: unknown, withUserText: boolean): AgentEvent[] {
+// Converts a Messages API message into UI events. Text is only included for history: live,
+// the renderer already shows the prompt and assistant text arrives as stream deltas.
+function toEvents(type: string, message: unknown, history: boolean): AgentEvent[] {
   const content = (message as { content?: unknown })?.content
-  if (type === 'user' && typeof content === 'string') return withUserText ? [{ kind: 'user', text: content }] : []
+  if (type === 'user' && typeof content === 'string') return history ? [{ kind: 'user', text: content }] : []
   if (!Array.isArray(content)) return []
   return (content as Block[]).flatMap((b): AgentEvent[] => {
-    if (type === 'assistant' && b.type === 'text') return [{ kind: 'text', text: b.text as string }]
+    if (type === 'assistant' && b.type === 'text' && history) return [{ kind: 'text', text: b.text as string }]
     if (type === 'assistant' && b.type === 'tool_use')
       return [{ kind: 'tool', id: b.id as string, name: b.name as string, input: b.input as Record<string, unknown> }]
     if (type === 'user' && b.type === 'tool_result')
       return [{ kind: 'result', id: b.tool_use_id as string, text: toText(b.content), isError: b.is_error === true }]
-    if (type === 'user' && b.type === 'text' && withUserText) return [{ kind: 'user', text: b.text as string }]
+    if (type === 'user' && b.type === 'text' && history) return [{ kind: 'user', text: b.text as string }]
     return []
   })
 }
@@ -110,14 +110,27 @@ ipcMain.handle('send', async (_, prompt: string, model: string) => {
   const isNew = !sessionId
   current = query({
     prompt,
-    options: { cwd, resume: sessionId, canUseTool, model: model === 'default' ? undefined : model },
+    options: {
+      cwd,
+      resume: sessionId,
+      canUseTool,
+      model: model === 'default' ? undefined : model,
+      includePartialMessages: true,
+      // Skip ~/.claude settings: global hooks there can answer permission requests before our
+      // approval UI sees them. Project settings and CLAUDE.md still load.
+      settingSources: ['project', 'local'],
+    },
   })
   try {
     for await (const msg of current) {
       // Subagent internals are skipped; their final report arrives as the parent tool's result.
       if ('parent_tool_use_id' in msg && msg.parent_tool_use_id) continue
       if (msg.type === 'system' && msg.subtype === 'init') sessionId = msg.session_id
-      else if (msg.type === 'assistant' || msg.type === 'user') toEvents(msg.type, msg.message, false).forEach(emit)
+      else if (msg.type === 'stream_event') {
+        const e = msg.event
+        if (e.type === 'content_block_start' && e.content_block.type === 'text') emit({ kind: 'text', text: '' })
+        else if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') emit({ kind: 'delta', text: e.delta.text })
+      } else if (msg.type === 'assistant' || msg.type === 'user') toEvents(msg.type, msg.message, false).forEach(emit)
       else if (msg.type === 'result' && msg.subtype !== 'success') emit({ kind: 'error', text: msg.subtype })
     }
     if (isNew && sessionId) await tagSession(sessionId, TAG, { dir: cwd })
@@ -141,8 +154,11 @@ ipcMain.on('permission', (_, id: string, allow: boolean) => {
 
 app.whenReady().then(() => {
   win = new BrowserWindow({
-    width: 1100,
-    height: 800,
+    width: 1200,
+    height: 820,
+    minWidth: 720,
+    minHeight: 480,
+    titleBarStyle: 'hiddenInset',
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
   })
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)

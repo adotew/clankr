@@ -1,5 +1,5 @@
 export type AgentEvent =
-  | { kind: 'user' | 'text' | 'error'; text: string }
+  | { kind: 'user' | 'text' | 'delta' | 'error'; text: string }
   | { kind: 'tool'; id: string; name: string; input: Record<string, unknown> }
   | { kind: 'result'; id: string; text: string; isError: boolean }
   | { kind: 'permission'; id: string; name: string; input: Record<string, unknown> }

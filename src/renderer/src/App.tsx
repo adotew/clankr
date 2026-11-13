@@ -1,20 +1,31 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { CheckIcon, CircleAlertIcon, CopyIcon, FolderOpenIcon, MessageCircleDashedIcon, ShieldQuestionIcon } from 'lucide-react'
+
+import { AppSidebar, type Active } from '@/components/app-sidebar'
+import { Markdown } from '@/components/markdown'
+import { PromptInput } from '@/components/prompt-input'
+import { ToolStep, type ToolItem } from '@/components/tool-step'
+import { Bubble, BubbleContent } from '@/components/ui/bubble'
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item'
+import { Message, MessageContent, MessageFooter } from '@/components/ui/message'
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from '@/components/ui/message-scroller'
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { Trace } from '@/components/ui/trace'
 import type { AgentEvent, Model, Thread } from '../../shared'
 
-type Item =
-  | { kind: 'user' | 'assistant' | 'error'; text: string }
-  | { kind: 'tool'; id: string; name: string; input: Record<string, unknown>; result?: { text: string; isError: boolean } }
-
+type Item = { kind: 'user' | 'assistant' | 'error'; text: string } | ToolItem
 type Permission = Extract<AgentEvent, { kind: 'permission' }>
-
-// The open conversation; `id` is unset until the first message of a new thread is sent.
-type Active = { id?: string; cwd: string }
-
-// One-line hint shown next to a tool name, e.g. the command or file path.
-const summarize = (input: Record<string, unknown>) =>
-  String(input.command ?? input.file_path ?? input.pattern ?? input.url ?? '')
-
-const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
+// One user prompt and everything the agent did in reply.
+type Turn = { prompt?: string; replies: Item[] }
 
 function applyEvent(items: Item[], e: AgentEvent): Item[] {
   switch (e.kind) {
@@ -23,6 +34,12 @@ function applyEvent(items: Item[], e: AgentEvent): Item[] {
       return [...items, { kind: e.kind, text: e.text }]
     case 'text':
       return [...items, { kind: 'assistant', text: e.text }]
+    case 'delta': {
+      const last = items.at(-1)
+      return last?.kind === 'assistant'
+        ? [...items.slice(0, -1), { ...last, text: last.text + e.text }]
+        : [...items, { kind: 'assistant', text: e.text }]
+    }
     case 'tool':
       return [...items, e]
     case 'result':
@@ -30,6 +47,108 @@ function applyEvent(items: Item[], e: AgentEvent): Item[] {
     default:
       return items
   }
+}
+
+function toTurns(items: Item[]): Turn[] {
+  const turns: Turn[] = []
+  for (const item of items) {
+    if (item.kind === 'user') turns.push({ prompt: item.text, replies: [] })
+    else if (turns.length === 0) turns.push({ replies: [item] })
+    else turns.at(-1)!.replies.push(item)
+  }
+  return turns
+}
+
+// Runs of tool calls render as one trace; text and errors render on their own.
+function groupReplies(replies: Item[]): (Item | ToolItem[])[] {
+  const groups: (Item | ToolItem[])[] = []
+  for (const item of replies) {
+    const last = groups.at(-1)
+    if (item.kind === 'tool' && Array.isArray(last)) last.push(item)
+    else groups.push(item.kind === 'tool' ? [item] : item)
+  }
+  return groups
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={copied ? 'Copied' : 'Copy'}
+      onClick={() =>
+        navigator.clipboard.writeText(text).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 2000)
+        })
+      }
+    >
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </Button>
+  )
+}
+
+function Reply({ replies, streaming }: { replies: Item[]; streaming: boolean }) {
+  const text = replies.flatMap((r) => (r.kind === 'assistant' ? [r.text] : [])).join('\n\n')
+  const groups = groupReplies(replies)
+
+  return (
+    <Message>
+      <MessageContent className="w-full gap-3">
+        {groups.map((group, i) => {
+          if (Array.isArray(group))
+            return (
+              <Trace key={i}>
+                {group.map((tool) => (
+                  <ToolStep key={tool.id} tool={tool} running={streaming} />
+                ))}
+              </Trace>
+            )
+          if (group.kind === 'error')
+            return (
+              <p key={i} className="flex items-center gap-2 text-sm text-destructive">
+                <CircleAlertIcon className="size-4" /> {group.text}
+              </p>
+            )
+          return (
+            <Markdown key={i} streaming={streaming && i === groups.length - 1}>
+              {group.kind === 'tool' ? '' : group.text}
+            </Markdown>
+          )
+        })}
+        {!streaming && text && (
+          <MessageFooter className="px-0">
+            <CopyButton text={text} />
+          </MessageFooter>
+        )}
+      </MessageContent>
+    </Message>
+  )
+}
+
+function Confirmation({ permission, onReply }: { permission: Permission; onReply: (allow: boolean) => void }) {
+  const { command, file_path, description } = permission.input
+  const detail = [command, file_path, description].find((v) => typeof v === 'string') as string | undefined
+  return (
+    <Item variant="outline" size="sm">
+      <ItemMedia variant="icon">
+        <ShieldQuestionIcon />
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle>Allow {permission.name}?</ItemTitle>
+        {detail && <ItemDescription className="truncate font-mono text-xs">{detail}</ItemDescription>}
+      </ItemContent>
+      <ItemActions>
+        <Button size="sm" variant="outline" onClick={() => onReply(false)}>
+          Deny
+        </Button>
+        <Button size="sm" onClick={() => onReply(true)}>
+          Allow
+        </Button>
+      </ItemActions>
+    </Item>
+  )
 }
 
 export function App() {
@@ -40,8 +159,6 @@ export function App() {
   const [items, setItems] = useState<Item[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [busy, setBusy] = useState(false)
-  const [prompt, setPrompt] = useState('')
-  const bottom = useRef<HTMLDivElement>(null)
 
   const refreshThreads = () => window.api.threads().then(setThreads)
 
@@ -56,10 +173,6 @@ export function App() {
       } else setItems((xs) => applyEvent(xs, e))
     })
   }, [])
-
-  useEffect(() => {
-    bottom.current?.scrollIntoView()
-  }, [items, permissions])
 
   const newThread = async () => {
     const cwd = await window.api.newThread()
@@ -78,11 +191,9 @@ export function App() {
     localStorage.setItem('model', value)
   }
 
-  const send = async () => {
-    const text = prompt.trim()
-    if (!text || busy || !active) return
+  const send = async (text: string) => {
+    if (!active) return
     setItems((xs) => [...xs, { kind: 'user', text }])
-    setPrompt('')
     setBusy(true)
     const id = await window.api.send(text, model)
     setActive((a) => a && { ...a, id })
@@ -94,99 +205,85 @@ export function App() {
     setPermissions((ps) => ps.filter((p) => p.id !== id))
   }
 
-  return (
-    <div className="app">
-      <aside>
-        <button onClick={newThread} disabled={busy}>
-          + New thread
-        </button>
-        <nav>
-          {active && !active.id && (
-            <button className="thread active">
-              <span className="title">New thread</span>
-              <span className="folder">{folderName(active.cwd)}</span>
-            </button>
-          )}
-          {threads.map((t) => (
-            <button
-              key={t.id}
-              className={`thread ${t.id === active?.id ? 'active' : ''}`}
-              onClick={() => openThread(t)}
-              disabled={busy}
-              title={t.cwd}
-            >
-              <span className="title">{t.title}</span>
-              <span className="folder">{t.folder}</span>
-            </button>
-          ))}
-        </nav>
-      </aside>
+  const turns = toTurns(items)
+  const title = threads.find((t) => t.id === active?.id)?.title ?? (active ? 'New thread' : 'Clankr')
 
-      <div className="chat">
-        <header>
-          <span className="path">{active?.cwd ?? 'No thread selected'}</span>
-          <select value={model} onChange={(e) => pickModel(e.target.value)} disabled={busy}>
-            {models.length === 0 && <option value={model}>{model}</option>}
-            {models.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.displayName}
-              </option>
-            ))}
-          </select>
+  return (
+    <SidebarProvider>
+      <AppSidebar threads={threads} active={active} busy={busy} onNew={newThread} onOpen={openThread} />
+      <SidebarInset className="h-svh min-w-0">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3 [-webkit-app-region:drag]">
+          <SidebarTrigger className="[-webkit-app-region:no-drag]" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">{title}</div>
+          </div>
+          {active && <div className="ml-auto truncate text-xs text-muted-foreground">{active.cwd}</div>}
         </header>
 
-        <main>
-          {items.map((item, i) =>
-            item.kind === 'tool' ? (
-              <details key={i} className={`tool ${item.result?.isError ? 'error' : ''}`}>
-                <summary>
-                  <b>{item.name}</b> {summarize(item.input)} {!item.result && '…'}
-                </summary>
-                <pre>{JSON.stringify(item.input, null, 2)}</pre>
-                {item.result && <pre>{item.result.text}</pre>}
-              </details>
+        <MessageScrollerProvider autoScroll>
+          <div className="min-h-0 flex-1">
+            {turns.length === 0 ? (
+              <Empty className="h-full">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">{active ? <MessageCircleDashedIcon /> : <FolderOpenIcon />}</EmptyMedia>
+                  <EmptyTitle>{active ? 'What should we build?' : 'Open a project'}</EmptyTitle>
+                  <EmptyDescription>
+                    {active
+                      ? 'The agent can read your code, run commands and make changes. It asks before editing files or running commands.'
+                      : 'Pick a folder to start a new thread, or continue one from the sidebar.'}
+                  </EmptyDescription>
+                </EmptyHeader>
+                {!active && (
+                  <EmptyContent>
+                    <Button onClick={newThread}>Open folder</Button>
+                  </EmptyContent>
+                )}
+              </Empty>
             ) : (
-              <div key={i} className={`msg ${item.kind}`}>
-                {item.text}
-              </div>
-            ),
-          )}
-          {permissions.map((p) => (
-            <div key={p.id} className="permission">
-              <div>
-                Allow <b>{p.name}</b>?
-              </div>
-              <pre>{JSON.stringify(p.input, null, 2)}</pre>
-              <button onClick={() => reply(p.id, true)}>Allow</button>
-              <button onClick={() => reply(p.id, false)}>Deny</button>
-            </div>
-          ))}
-          <div ref={bottom} />
-        </main>
+              <MessageScroller>
+                <MessageScrollerViewport>
+                  <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 py-6">
+                    {turns.map((turn, i) => {
+                      const last = i === turns.length - 1
+                      return (
+                        <MessageScrollerItem key={i} messageId={String(i)} scrollAnchor={!!turn.prompt} className="flex flex-col gap-6">
+                          {turn.prompt && (
+                            <Message align="end">
+                              <MessageContent>
+                                <Bubble align="end" variant="muted">
+                                  <BubbleContent className="whitespace-pre-wrap">{turn.prompt}</BubbleContent>
+                                </Bubble>
+                              </MessageContent>
+                            </Message>
+                          )}
+                          {(turn.replies.length > 0 || (last && busy)) && (
+                            <Reply replies={turn.replies} streaming={last && busy} />
+                          )}
+                          {last &&
+                            permissions.map((p) => <Confirmation key={p.id} permission={p} onReply={(allow) => reply(p.id, allow)} />)}
+                        </MessageScrollerItem>
+                      )
+                    })}
+                  </MessageScrollerContent>
+                </MessageScrollerViewport>
+                <MessageScrollerButton />
+              </MessageScroller>
+            )}
+          </div>
+        </MessageScrollerProvider>
 
-        <footer>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                send()
-              }
-            }}
-            placeholder={active ? 'Ask something… (Shift+Enter for newline)' : 'Start a new thread first'}
+        <div className="mx-auto w-full max-w-3xl px-6 pb-6">
+          <PromptInput
             disabled={!active}
-            rows={3}
+            busy={busy}
+            models={models}
+            model={model}
+            onModelChange={pickModel}
+            onSend={send}
+            onStop={() => window.api.stop()}
           />
-          {busy ? (
-            <button onClick={() => window.api.stop()}>Stop</button>
-          ) : (
-            <button onClick={send} disabled={!active || !prompt.trim()}>
-              Send
-            </button>
-          )}
-        </footer>
-      </div>
-    </div>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }
