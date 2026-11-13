@@ -14,6 +14,22 @@ const api: Api = {
     ipcRenderer.on('agent:event', listener)
     return () => ipcRenderer.removeListener('agent:event', listener)
   },
+  term: {
+    start: (cwd, cols, rows) => ipcRenderer.send('term-start', cwd, cols, rows),
+    input: (data) => ipcRenderer.send('term-input', data),
+    resize: (cols, rows) => ipcRenderer.send('term-resize', cols, rows),
+    kill: () => ipcRenderer.send('term-kill'),
+    onData: (cb) => {
+      const listener = (_: IpcRendererEvent, data: string) => cb(data)
+      ipcRenderer.on('term:data', listener)
+      return () => ipcRenderer.removeListener('term:data', listener)
+    },
+    onExit: (cb) => {
+      const listener = () => cb()
+      ipcRenderer.on('term:exit', listener)
+      return () => ipcRenderer.removeListener('term:exit', listener)
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

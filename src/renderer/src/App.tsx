@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
-import { CheckIcon, CircleAlertIcon, CopyIcon, FolderOpenIcon, MessageCircleDashedIcon, ShieldQuestionIcon } from 'lucide-react'
+import {
+  CheckIcon,
+  CircleAlertIcon,
+  CopyIcon,
+  FolderOpenIcon,
+  MessageCircleDashedIcon,
+  ShieldQuestionIcon,
+} from 'lucide-react'
 
 import { AppSidebar, type Active } from '@/components/app-sidebar'
 import { Markdown } from '@/components/markdown'
 import { PromptInput } from '@/components/prompt-input'
+import { TerminalPanel } from '@/components/terminal-panel'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
@@ -43,7 +51,9 @@ function applyEvent(items: Item[], e: AgentEvent): Item[] {
     case 'tool':
       return [...items, e]
     case 'result':
-      return items.map((x) => (x.kind === 'tool' && x.id === e.id ? { ...x, result: { text: e.text, isError: e.isError } } : x))
+      return items.map((x) =>
+        x.kind === 'tool' && x.id === e.id ? { ...x, result: { text: e.text, isError: e.isError } } : x,
+      )
     default:
       return items
   }
@@ -169,6 +179,21 @@ export function App() {
   const [items, setItems] = useState<Item[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [busy, setBusy] = useState(false)
+  // 'hidden' keeps the shell running while the panel is closed.
+  const [terminal, setTerminal] = useState<'off' | 'open' | 'hidden'>('off')
+
+  useEffect(() => {
+    // Capture phase so the shortcut still works while the terminal has focus.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'KeyJ') {
+        e.preventDefault()
+        e.stopPropagation()
+        setTerminal((t) => (t === 'open' ? 'hidden' : 'open'))
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
 
   const refreshThreads = () => window.api.threads().then(setThreads)
 
@@ -220,72 +245,89 @@ export function App() {
   return (
     <SidebarProvider>
       <AppSidebar threads={threads} active={active} busy={busy} onNew={newThread} onOpen={openThread} />
-      <SidebarInset className="relative h-svh min-w-0">
-        <TitleBar />
+      <SidebarInset className="h-svh min-w-0 flex-row">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          <TitleBar />
 
-        <MessageScrollerProvider autoScroll>
-          <div className="min-h-0 flex-1">
-            {turns.length === 0 ? (
-              <Empty className="h-full">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">{active ? <MessageCircleDashedIcon /> : <FolderOpenIcon />}</EmptyMedia>
-                  <EmptyTitle>{active ? 'What should we build?' : 'Open a project'}</EmptyTitle>
-                  <EmptyDescription>
-                    {active
-                      ? 'The agent can read your code, run commands and make changes. It asks before editing files or running commands.'
-                      : 'Pick a folder to start a new thread, or continue one from the sidebar.'}
-                  </EmptyDescription>
-                </EmptyHeader>
-                {!active && (
-                  <EmptyContent>
-                    <Button onClick={newThread}>Open folder</Button>
-                  </EmptyContent>
-                )}
-              </Empty>
-            ) : (
-              <MessageScroller>
-                <MessageScrollerViewport>
-                  <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-12 pb-6">
-                    {turns.map((turn, i) => {
-                      const last = i === turns.length - 1
-                      return (
-                        <MessageScrollerItem key={i} messageId={String(i)} scrollAnchor={!!turn.prompt} className="flex flex-col gap-6">
-                          {turn.prompt && (
-                            <Message align="end">
-                              <MessageContent>
-                                <Bubble align="end" variant="muted">
-                                  <BubbleContent className="whitespace-pre-wrap">{turn.prompt}</BubbleContent>
-                                </Bubble>
-                              </MessageContent>
-                            </Message>
-                          )}
-                          {(turn.replies.length > 0 || (last && busy)) && (
-                            <Reply replies={turn.replies} streaming={last && busy} />
-                          )}
-                          {last &&
-                            permissions.map((p) => <Confirmation key={p.id} permission={p} onReply={(allow) => reply(p.id, allow)} />)}
-                        </MessageScrollerItem>
-                      )
-                    })}
-                  </MessageScrollerContent>
-                </MessageScrollerViewport>
-                <MessageScrollerButton />
-              </MessageScroller>
-            )}
+          <MessageScrollerProvider autoScroll>
+            <div className="min-h-0 flex-1">
+              {turns.length === 0 ? (
+                <Empty className="h-full">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">{active ? <MessageCircleDashedIcon /> : <FolderOpenIcon />}</EmptyMedia>
+                    <EmptyTitle>{active ? 'What should we build?' : 'Open a project'}</EmptyTitle>
+                    <EmptyDescription>
+                      {active
+                        ? 'The agent can read your code, run commands and make changes. It asks before editing files or running commands.'
+                        : 'Pick a folder to start a new thread, or continue one from the sidebar.'}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                  {!active && (
+                    <EmptyContent>
+                      <Button onClick={newThread}>Open folder</Button>
+                    </EmptyContent>
+                  )}
+                </Empty>
+              ) : (
+                <MessageScroller>
+                  <MessageScrollerViewport>
+                    <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-12 pb-6">
+                      {turns.map((turn, i) => {
+                        const last = i === turns.length - 1
+                        return (
+                          <MessageScrollerItem
+                            key={i}
+                            messageId={String(i)}
+                            scrollAnchor={!!turn.prompt}
+                            className="flex flex-col gap-6"
+                          >
+                            {turn.prompt && (
+                              <Message align="end">
+                                <MessageContent>
+                                  <Bubble align="end" variant="muted">
+                                    <BubbleContent className="whitespace-pre-wrap">{turn.prompt}</BubbleContent>
+                                  </Bubble>
+                                </MessageContent>
+                              </Message>
+                            )}
+                            {(turn.replies.length > 0 || (last && busy)) && (
+                              <Reply replies={turn.replies} streaming={last && busy} />
+                            )}
+                            {last &&
+                              permissions.map((p) => (
+                                <Confirmation key={p.id} permission={p} onReply={(allow) => reply(p.id, allow)} />
+                              ))}
+                          </MessageScrollerItem>
+                        )
+                      })}
+                    </MessageScrollerContent>
+                  </MessageScrollerViewport>
+                  <MessageScrollerButton />
+                </MessageScroller>
+              )}
+            </div>
+          </MessageScrollerProvider>
+
+          <div className="mx-auto w-full max-w-3xl px-6 pb-6">
+            <PromptInput
+              disabled={!active}
+              busy={busy}
+              models={models}
+              model={model}
+              onModelChange={pickModel}
+              onSend={send}
+              onStop={() => window.api.stop()}
+            />
           </div>
-        </MessageScrollerProvider>
-
-        <div className="mx-auto w-full max-w-3xl px-6 pb-6">
-          <PromptInput
-            disabled={!active}
-            busy={busy}
-            models={models}
-            model={model}
-            onModelChange={pickModel}
-            onSend={send}
-            onStop={() => window.api.stop()}
-          />
         </div>
+        {terminal !== 'off' && (
+          <TerminalPanel
+            key={active?.cwd}
+            cwd={active?.cwd}
+            visible={terminal === 'open'}
+            onExit={() => setTerminal('off')}
+          />
+        )}
       </SidebarInset>
     </SidebarProvider>
   )

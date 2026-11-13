@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { spawn, type IPty } from '@lydell/node-pty'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import {
   getSessionMessages,
@@ -152,6 +154,33 @@ ipcMain.on('permission', (_, id: string, allow: boolean) => {
   pending.delete(id)
 })
 
+// One shell at a time; opening a terminal in a new folder replaces the old one.
+let shell: IPty | undefined
+
+ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number) => {
+  shell?.kill()
+  const pty = spawn(process.env.SHELL ?? '/bin/zsh', ['-l'], {
+    name: 'xterm-256color',
+    cwd: cwd ?? homedir(),
+    cols,
+    rows,
+    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+  })
+  shell = pty
+  pty.onData((data) => win.webContents.send('term:data', data))
+  pty.onExit(() => {
+    if (shell !== pty) return
+    shell = undefined
+    win.webContents.send('term:exit')
+  })
+})
+ipcMain.on('term-input', (_, data: string) => shell?.write(data))
+ipcMain.on('term-resize', (_, cols: number, rows: number) => shell?.resize(cols, rows))
+ipcMain.on('term-kill', () => {
+  shell?.kill()
+  shell = undefined
+})
+
 app.whenReady().then(() => {
   win = new BrowserWindow({
     width: 1200,
@@ -165,4 +194,7 @@ app.whenReady().then(() => {
   else win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
 })
 
-app.on('window-all-closed', () => app.quit())
+app.on('window-all-closed', () => {
+  shell?.kill()
+  app.quit()
+})

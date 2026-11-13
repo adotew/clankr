@@ -17,6 +17,14 @@ export type Api = {
   stop: () => Promise<void>
   reply: (id: string, allow: boolean) => void
   onEvent: (cb: (e: AgentEvent) => void) => () => void
+  term: {
+    start: (cwd: string | undefined, cols: number, rows: number) => void
+    input: (data: string) => void
+    resize: (cols: number, rows: number) => void
+    kill: () => void
+    onData: (cb: (data: string) => void) => () => void
+    onExit: (cb: () => void) => () => void
+  }
 }
 
 declare global {
