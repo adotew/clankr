@@ -10,7 +10,9 @@ import {
 } from 'lucide-react'
 
 import { AppSidebar, folderName, type Active } from '@/components/app-sidebar'
+import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
+import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
 import { TerminalPanel } from '@/components/terminal-panel'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
@@ -250,6 +252,9 @@ export function App() {
   }
 
   const turns = toTurns(items)
+  const [background, setBackground] = useState(true)
+  if (turns.length === 0 && !background) setBackground(true)
+
   const prompt = (
     <PromptInput
       placeholder={active.folder ? 'Ask the agent to change your code…' : 'Ask anything…'}
@@ -266,13 +271,35 @@ export function App() {
     <SidebarProvider>
       <AppSidebar threads={threads} active={active} busy={busy} onNew={newThread} onOpen={openThread} />
       <SidebarInset className="h-svh min-w-0 flex-row">
-        <div className="relative flex min-w-0 flex-1 flex-col">
+        <div className="relative isolate flex min-w-0 flex-1 flex-col">
+          {background && (
+            // Fades out once the first prompt is sent, then unmounts to free the GPU.
+            <GradientASCII
+              className={cn(
+                'pointer-events-none !absolute inset-0 -z-10 transition-opacity duration-700',
+                turns.length > 0 && 'opacity-0',
+              )}
+              onTransitionEnd={() => turns.length > 0 && setBackground(false)}
+              colors={['#1e3fd8', '#f6f8ff', '#a5d8ff', '#38bdf8']}
+              shape="horizon"
+              characters=" 01"
+              cellSize={12}
+              density={0.8}
+              glyphOpacity={0.84}
+              scale={1.85}
+              gradientOpacity={0.83}
+              grain={0.16}
+              variation={20}
+              scrambleRadius={0.29}
+              fontFamily='"JetBrainsMono Nerd Font", ui-monospace, monospace'
+            />
+          )}
           <TitleBar />
 
           {turns.length === 0 ? (
             // Empty thread: heading and prompt sit together in the middle.
-            <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-16">
-              <div className="flex flex-col items-center gap-3">
+            <div className="relative flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-16">
+              <div className="relative flex flex-col items-center gap-3">
                 <h1 className="text-4xl tracking-tight text-foreground/85">What should we work on?</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -295,7 +322,9 @@ export function App() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <div className="w-full max-w-3xl">{prompt}</div>
+              <div className="relative w-full max-w-3xl rounded-2xl bg-background/30 backdrop-blur-md [&_[data-slot=input-group]]:border-transparent">
+                {prompt}
+              </div>
             </div>
           ) : (
             <MessageScrollerProvider autoScroll>
