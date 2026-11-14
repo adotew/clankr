@@ -156,9 +156,10 @@ function TerminalPane({
       ref={ref}
       onFocus={onFocus}
       className={cn(
-        'h-full overflow-hidden rounded-xl pt-1 pl-2 caret-transparent transition-[opacity,box-shadow]',
-        // A lone pane blends into the panel; splits outline the active one.
-        split && (focused ? 'ring-1 ring-foreground/30' : 'opacity-60'),
+        'h-full overflow-hidden rounded-xl pt-1 pl-2 caret-transparent transition-opacity',
+        // A lone pane blends into the panel; splits become separate boxes, with inactive ones dimmed.
+        split && 'bg-foreground/5',
+        split && !focused && 'opacity-60',
       )}
     />
   )
@@ -299,12 +300,12 @@ export function TerminalPanel({
       </div>
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl rounded-tl-none bg-sidebar/50 backdrop-blur-xl">
         {/* Hidden with `invisible`, not `hidden`, so the terminals keep their size and don't reflow. */}
-        {/* Each pane is padded 3px, so neighbours sit 6px apart and 8px from the panel edge. */}
-        <div className={cn('relative m-[5px] min-h-0 flex-1', view !== 'terminal' && 'invisible')}>
+        {/* Each pane is padded 4px, so neighbours sit 8px apart and 8px from the panel edge. */}
+        <div className={cn('relative m-1 min-h-0 flex-1', view !== 'terminal' && 'invisible')}>
           {panes.map(([pane, r]) => (
             <div
               key={pane}
-              className="absolute p-[3px]"
+              className="absolute p-1"
               style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
             >
               <TerminalPane
