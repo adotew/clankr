@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
 
 import { cn } from '@/lib/utils'
+import { BrowserView } from './browser-view'
 import { cursorTrail } from './cursor-trail'
 import { DiffView } from './diff-view'
 import { ResizeHandle, useStoredWidth } from './resize-handle'
@@ -66,7 +67,7 @@ const themes = {
   },
 }
 
-export type PanelView = 'terminal' | 'diff'
+export type PanelView = 'terminal' | 'diff' | 'browser'
 
 export function TerminalPanel({
   cwd,
@@ -84,6 +85,8 @@ export function TerminalPanel({
   const ref = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>(null)
   const asideRef = useRef<HTMLElement>(null)
+  const browserOpened = useRef(false)
+  if (view === 'browser') browserOpened.current = true
   const [width, setWidth] = useStoredWidth('terminalWidth', Math.round(innerWidth * 0.42))
 
   useEffect(() => {
@@ -132,7 +135,7 @@ export function TerminalPanel({
     return () => {
       disposed = true
       termRef.current = null
-      cleanups.forEach((fn) => fn())
+      for (const fn of cleanups) fn()
     }
     // Only a new folder restarts the shell.
   }, [cwd])
@@ -168,8 +171,9 @@ export function TerminalPanel({
         className="left-0"
       />
       <div className="flex h-9 shrink-0 items-center gap-1 px-2 [-webkit-app-region:drag]">
-        {(['terminal', 'diff'] as const).map((v) => (
+        {(['terminal', 'diff', 'browser'] as const).map((v) => (
           <button
+            type="button"
             key={v}
             onClick={() => onView(v)}
             aria-pressed={view === v}
@@ -188,6 +192,12 @@ export function TerminalPanel({
         {view === 'diff' && (
           <div className="absolute inset-0 flex flex-col">
             <DiffView cwd={cwd} visible={visible} />
+          </div>
+        )}
+        {/* Mounted on first open and then kept, so switching tabs doesn't reload the page. */}
+        {(view === 'browser' || browserOpened.current) && (
+          <div className={cn('absolute inset-0 flex flex-col', view !== 'browser' && 'invisible')}>
+            <BrowserView />
           </div>
         )}
       </div>

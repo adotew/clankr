@@ -45,4 +45,10 @@ const api: Api = {
 
 contextBridge.exposeInMainWorld('api', api)
 
+type Key = { code: string; shift: boolean; alt: boolean; control: boolean }
+ipcRenderer.on('webview-key', (_, k: Key) =>
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', { code: k.code, metaKey: true, shiftKey: k.shift, altKey: k.alt, ctrlKey: k.control }),
+  ),
+)
 ipcRenderer.on('fullscreen', (_, on: boolean) => document.documentElement.classList.toggle('fullscreen', on))

@@ -138,6 +138,11 @@ body.resizing * {
   transition: none !important;
 }
 
+/* Webviews swallow pointer events, which would stall a drag that crosses them. */
+body.resizing webview {
+  pointer-events: none;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

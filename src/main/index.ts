@@ -59,6 +59,28 @@ nativeTheme.on('updated', () => {
   for (const w of BrowserWindow.getAllWindows()) w.setBackgroundColor(background())
 })
 
+// The browser panel's <webview>: no preload or Node, web URLs only, popups load in place.
+app.on('web-contents-created', (_, contents) => {
+  contents.on('will-attach-webview', (e, prefs, params) => {
+    delete prefs.preload
+    prefs.nodeIntegration = false
+    prefs.contextIsolation = true
+    if (!/^(https?:|about:blank$)/.test(params.src)) e.preventDefault()
+  })
+  if (contents.getType() !== 'webview') return
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url)) contents.loadURL(url)
+    return { action: 'deny' }
+  })
+  // Keystrokes in a webview never reach the host page, so pass ⌘ shortcuts on to the app's handler.
+  contents.on('before-input-event', (_, input) => {
+    if (input.type === 'keyDown' && input.meta) {
+      const { code, shift, alt, control } = input
+      contents.hostWebContents?.send('webview-key', { code, shift, alt, control })
+    }
+  })
+})
+
 const load = (w: BrowserWindow, hash = '') => {
   if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL + hash)
   else w.loadFile(join(import.meta.dirname, '../renderer/index.html'), { hash })
@@ -526,7 +548,7 @@ app.whenReady().then(() => {
     titleBarStyle: 'hiddenInset',
     backgroundColor: background(),
     trafficLightPosition: { x: 20, y: 20 },
-    webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
+    webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), webviewTag: true },
   })
   win.on('enter-full-screen', () => win.webContents.send('fullscreen', true))
   win.on('leave-full-screen', () => win.webContents.send('fullscreen', false))

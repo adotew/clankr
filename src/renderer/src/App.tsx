@@ -7,6 +7,7 @@ import {
   FolderIcon,
   FolderOpenIcon,
   GitCompareIcon,
+  GlobeIcon,
   LoaderCircleIcon,
   MessagesSquareIcon,
   PlusIcon,
@@ -294,6 +295,7 @@ export function App() {
         } else return
       } else if (e.code === 'KeyJ') toggle('terminal')
       else if (e.code === 'KeyD') toggle('diff')
+      else if (e.code === 'KeyB') toggle('browser')
       else if (e.code === 'KeyP') togglePalette('threads')
       else if (e.code === 'KeyN') {
         if (!latest.current.busy) latest.current.newThread()
@@ -417,6 +419,7 @@ export function App() {
     { key: 'none', label: 'New chat without project', icon: <MessageCircleIcon />, disabled: busy, run: () => chooseProject(undefined) },
     { key: 'terminal', label: 'Toggle terminal', icon: <SquareTerminalIcon />, hint: '⌘J', run: () => toggle('terminal') },
     { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘D', run: () => toggle('diff') },
+    { key: 'browser', label: 'Toggle browser', icon: <GlobeIcon />, hint: '⌘B', run: () => toggle('browser') },
     { key: 'settings', label: 'Settings', icon: <SettingsIcon />, hint: '⌘,', run: window.api.openSettings },
   ]
   const threadRows: PaletteRow[] = threads.map((t) => ({
