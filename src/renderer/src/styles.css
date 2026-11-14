@@ -5,6 +5,16 @@
 /* Streamdown renders markdown with Tailwind classes. */
 @source "../../../node_modules/streamdown/dist/*.js";
 
+@font-face {
+  font-family: Heming;
+  src: url("./fonts/heming-variable.ttf") format("truetype");
+  font-weight: 100 900;
+}
+
+@theme {
+  --font-heming: Heming, system-ui;
+}
+
 @custom-variant dark (&:is(.dark *));
 /* Set by the preload script; macOS hides the traffic lights in fullscreen. */
 @custom-variant fullscreen (&:is(.fullscreen *));

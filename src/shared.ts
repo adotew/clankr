@@ -5,15 +5,17 @@ export type AgentEvent =
   | { kind: 'permission'; id: string; name: string; input: Record<string, unknown> }
   | { kind: 'done' }
 
-export type Thread = { id: string; title: string; cwd: string; folder: string }
+// `folder` is undefined for "No project" threads.
+export type Thread = { id: string; title: string; cwd: string; folder?: string }
 export type Model = { value: string; displayName: string }
 
 export type Api = {
   models: () => Promise<Model[]>
   threads: () => Promise<Thread[]>
-  newThread: () => Promise<string | undefined>
+  pickFolder: () => Promise<string | undefined>
+  newThread: (cwd: string | undefined) => Promise<void>
   openThread: (thread: Thread) => Promise<AgentEvent[]>
-  send: (prompt: string, model: string) => Promise<string | undefined>
+  send: (prompt: string, model: string) => Promise<{ sessionId?: string; cwd: string } | undefined>
   stop: () => Promise<void>
   reply: (id: string, allow: boolean) => void
   onEvent: (cb: (e: AgentEvent) => void) => () => void

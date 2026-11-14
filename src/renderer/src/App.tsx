@@ -1,21 +1,22 @@
 import { useEffect, useState } from 'react'
 import {
   CheckIcon,
+  ChevronDownIcon,
   CircleAlertIcon,
   CopyIcon,
   FolderOpenIcon,
-  MessageCircleDashedIcon,
+  MessageCircleIcon,
   ShieldQuestionIcon,
 } from 'lucide-react'
 
-import { AppSidebar, type Active } from '@/components/app-sidebar'
+import { AppSidebar, folderName, type Active } from '@/components/app-sidebar'
 import { Markdown } from '@/components/markdown'
 import { PromptInput } from '@/components/prompt-input'
 import { TerminalPanel } from '@/components/terminal-panel'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { Message, MessageContent, MessageFooter } from '@/components/ui/message'
 import {
@@ -173,7 +174,8 @@ function Confirmation({ permission, onReply }: { permission: Permission; onReply
 
 export function App() {
   const [threads, setThreads] = useState<Thread[]>([])
-  const [active, setActive] = useState<Active>()
+  // Starts in "No project": a plain chat without any project context.
+  const [active, setActive] = useState<Active>({})
   const [models, setModels] = useState<Model[]>([])
   const [model, setModel] = useState(() => localStorage.getItem('model') ?? 'default')
   const [items, setItems] = useState<Item[]>([])
@@ -209,15 +211,23 @@ export function App() {
     })
   }, [])
 
-  const newThread = async () => {
-    const cwd = await window.api.newThread()
-    if (!cwd) return
-    setActive({ cwd })
+  // Starts a fresh thread in a project folder, or in "No project" when `cwd` is undefined.
+  const chooseProject = async (cwd: string | undefined) => {
+    await window.api.newThread(cwd)
+    setActive({ cwd, folder: cwd && folderName(cwd) })
     setItems([])
   }
 
+  const pickFolder = async () => {
+    const dir = await window.api.pickFolder()
+    if (dir) chooseProject(dir)
+  }
+
+  // A "No project" thread's scratch folder is never reused; the next one gets its own.
+  const newThread = () => chooseProject(active.folder ? active.cwd : undefined)
+
   const openThread = async (thread: Thread) => {
-    setActive({ id: thread.id, cwd: thread.cwd })
+    setActive({ id: thread.id, cwd: thread.cwd, folder: thread.folder })
     setItems((await window.api.openThread(thread)).reduce(applyEvent, []))
   }
 
@@ -227,11 +237,10 @@ export function App() {
   }
 
   const send = async (text: string) => {
-    if (!active) return
     setItems((xs) => [...xs, { kind: 'user', text }])
     setBusy(true)
-    const id = await window.api.send(text, model)
-    setActive((a) => a && { ...a, id })
+    const r = await window.api.send(text, model)
+    if (r) setActive((a) => ({ ...a, id: r.sessionId, cwd: r.cwd }))
     refreshThreads()
   }
 
@@ -241,6 +250,17 @@ export function App() {
   }
 
   const turns = toTurns(items)
+  const prompt = (
+    <PromptInput
+      placeholder={active.folder ? 'Ask the agent to change your code…' : 'Ask anything…'}
+      busy={busy}
+      models={models}
+      model={model}
+      onModelChange={pickModel}
+      onSend={send}
+      onStop={() => window.api.stop()}
+    />
+  )
 
   return (
     <SidebarProvider>
@@ -249,26 +269,37 @@ export function App() {
         <div className="relative flex min-w-0 flex-1 flex-col">
           <TitleBar />
 
-          <MessageScrollerProvider autoScroll>
-            <div className="min-h-0 flex-1">
-              {turns.length === 0 ? (
-                <Empty className="h-full">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">{active ? <MessageCircleDashedIcon /> : <FolderOpenIcon />}</EmptyMedia>
-                    <EmptyTitle>{active ? 'What should we build?' : 'Open a project'}</EmptyTitle>
-                    <EmptyDescription>
-                      {active
-                        ? 'The agent can read your code, run commands and make changes. It asks before editing files or running commands.'
-                        : 'Pick a folder to start a new thread, or continue one from the sidebar.'}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                  {!active && (
-                    <EmptyContent>
-                      <Button onClick={newThread}>Open folder</Button>
-                    </EmptyContent>
-                  )}
-                </Empty>
-              ) : (
+          {turns.length === 0 ? (
+            // Empty thread: heading and prompt sit together in the middle.
+            <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-16">
+              <div className="flex flex-col items-center gap-3">
+                <h1 className="text-4xl tracking-tight text-foreground/85">What should we work on?</h1>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    disabled={busy}
+                    title={active.folder && active.cwd}
+                    className="flex items-center gap-1 rounded-md px-2 font-medium text-foreground/70 transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+                  >
+                    {active.folder ?? 'No project'}
+                    <ChevronDownIcon className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="center" className="min-w-40">
+                    <DropdownMenuItem onClick={() => chooseProject(undefined)}>
+                      <MessageCircleIcon />
+                      No project
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={pickFolder}>
+                      <FolderOpenIcon />
+                      Open folder…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="w-full max-w-3xl">{prompt}</div>
+            </div>
+          ) : (
+            <MessageScrollerProvider autoScroll>
+              <div className="min-h-0 flex-1">
                 <MessageScroller>
                   <MessageScrollerViewport>
                     <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-12 pb-6">
@@ -304,26 +335,16 @@ export function App() {
                   </MessageScrollerViewport>
                   <MessageScrollerButton />
                 </MessageScroller>
-              )}
-            </div>
-          </MessageScrollerProvider>
+              </div>
+            </MessageScrollerProvider>
+          )}
 
-          <div className="mx-auto w-full max-w-3xl px-6 pb-6">
-            <PromptInput
-              disabled={!active}
-              busy={busy}
-              models={models}
-              model={model}
-              onModelChange={pickModel}
-              onSend={send}
-              onStop={() => window.api.stop()}
-            />
-          </div>
+          {turns.length > 0 && <div className="mx-auto w-full max-w-3xl px-6 pb-6">{prompt}</div>}
         </div>
         {terminal !== 'off' && (
           <TerminalPanel
-            key={active?.cwd}
-            cwd={active?.cwd}
+            key={active.cwd}
+            cwd={active.cwd}
             visible={terminal === 'open'}
             onExit={() => setTerminal('off')}
           />

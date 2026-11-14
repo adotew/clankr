@@ -1,8 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { spawn, type IPty } from '@lydell/node-pty'
 import { randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import {
   getSessionMessages,
   listSessions,
@@ -16,6 +17,11 @@ import type { AgentEvent, Model, Thread } from '../shared'
 
 // Marks sessions created by this app so other Claude Code sessions stay out of the sidebar.
 const TAG = 'clankr'
+
+// "No project" threads each get an empty folder here, so they run without any project context
+// and can be deleted without touching anything else.
+const scratchRoot = join(app.getPath('userData'), 'no-project')
+const isScratch = (dir: string) => dir.startsWith(scratchRoot + sep)
 
 let win: BrowserWindow
 let cwd: string | undefined
@@ -67,7 +73,11 @@ const canUseTool: CanUseTool = (name, input, { signal }) =>
 async function loadModels(): Promise<Model[]> {
   let release = () => {}
   const idle = new Promise<void>((r) => (release = r))
-  const q = query({ prompt: (async function* () { await idle })() })
+  const q = query({
+    prompt: (async function* () {
+      await idle
+    })(),
+  })
   try {
     return (await q.supportedModels()).map(({ value, displayName }) => ({ value, displayName }))
   } finally {
@@ -87,16 +97,24 @@ ipcMain.handle('models', () => {
 ipcMain.handle('threads', async (): Promise<Thread[]> =>
   (await listSessions())
     .filter((s) => s.tag === TAG && s.cwd)
-    .map((s) => ({ id: s.sessionId, title: s.summary, cwd: s.cwd!, folder: basename(s.cwd!) })),
+    .map((s) => ({
+      id: s.sessionId,
+      title: s.summary,
+      cwd: s.cwd!,
+      folder: isScratch(s.cwd!) ? undefined : basename(s.cwd!),
+    })),
 )
 
-ipcMain.handle('new-thread', async () => {
-  if (current) return
+ipcMain.handle('pick-folder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
-  if (r.canceled) return
-  cwd = r.filePaths[0]
+  return r.canceled ? undefined : r.filePaths[0]
+})
+
+// Without a project folder (or from a "No project" thread), the next send creates a fresh scratch folder.
+ipcMain.handle('new-thread', (_, dir: string | undefined) => {
+  if (current) return
+  cwd = dir && !isScratch(dir) ? dir : undefined
   sessionId = undefined
-  return cwd
 })
 
 ipcMain.handle('open-thread', async (_, thread: Thread): Promise<AgentEvent[]> => {
@@ -108,8 +126,12 @@ ipcMain.handle('open-thread', async (_, thread: Thread): Promise<AgentEvent[]> =
 })
 
 ipcMain.handle('send', async (_, prompt: string, model: string) => {
-  if (!cwd || current) return
+  if (current) return
   const isNew = !sessionId
+  if (!cwd) {
+    cwd = join(scratchRoot, randomUUID())
+    await mkdir(cwd, { recursive: true })
+  }
   current = query({
     prompt,
     options: {
@@ -131,7 +153,8 @@ ipcMain.handle('send', async (_, prompt: string, model: string) => {
       else if (msg.type === 'stream_event') {
         const e = msg.event
         if (e.type === 'content_block_start' && e.content_block.type === 'text') emit({ kind: 'text', text: '' })
-        else if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') emit({ kind: 'delta', text: e.delta.text })
+        else if (e.type === 'content_block_delta' && e.delta.type === 'text_delta')
+          emit({ kind: 'delta', text: e.delta.text })
       } else if (msg.type === 'assistant' || msg.type === 'user') toEvents(msg.type, msg.message, false).forEach(emit)
       else if (msg.type === 'result' && msg.subtype !== 'success') emit({ kind: 'error', text: msg.subtype })
     }
@@ -142,7 +165,7 @@ ipcMain.handle('send', async (_, prompt: string, model: string) => {
     current = undefined
     emit({ kind: 'done' })
   }
-  return sessionId
+  return { sessionId, cwd }
 })
 
 ipcMain.handle('stop', async () => {

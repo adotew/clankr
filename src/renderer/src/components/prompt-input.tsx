@@ -14,7 +14,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 import type { Model } from '../../../shared'
 
 export function PromptInput(props: {
-  disabled: boolean
+  placeholder: string
   busy: boolean
   models: Model[]
   model: string
@@ -22,10 +22,10 @@ export function PromptInput(props: {
   onSend: (text: string) => void
   onStop: () => void
 }) {
-  const { disabled, busy, models, model } = props
+  const { busy, models, model } = props
   const [text, setText] = React.useState('')
   const formRef = React.useRef<HTMLFormElement>(null)
-  const canSend = !disabled && !busy && text.trim().length > 0
+  const canSend = !busy && text.trim().length > 0
   const modelName = models.find((m) => m.value === model)?.displayName ?? model
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -37,13 +37,12 @@ export function PromptInput(props: {
 
   return (
     <form ref={formRef} onSubmit={onSubmit}>
-      <InputGroup>
+      <InputGroup className="rounded-2xl">
         <InputGroupTextarea
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder={disabled ? 'Open a folder to start a thread' : 'Ask the agent to change your code…'}
+          placeholder={props.placeholder}
           aria-label="Message"
-          disabled={disabled}
           className="max-h-60 min-h-16 p-3"
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -55,9 +54,7 @@ export function PromptInput(props: {
         <InputGroupAddon align="block-end">
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={
-                <InputGroupButton size="sm" variant="ghost" disabled={busy} aria-label={`Model: ${modelName}`} />
-              }
+              render={<InputGroupButton size="sm" variant="ghost" disabled={busy} aria-label={`Model: ${modelName}`} />}
             >
               {modelName}
               <ChevronDownIcon />

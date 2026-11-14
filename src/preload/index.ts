@@ -4,7 +4,8 @@ import type { AgentEvent, Api } from '../shared'
 const api: Api = {
   models: () => ipcRenderer.invoke('models'),
   threads: () => ipcRenderer.invoke('threads'),
-  newThread: () => ipcRenderer.invoke('new-thread'),
+  pickFolder: () => ipcRenderer.invoke('pick-folder'),
+  newThread: (cwd) => ipcRenderer.invoke('new-thread', cwd),
   openThread: (thread) => ipcRenderer.invoke('open-thread', thread),
   send: (prompt, model) => ipcRenderer.invoke('send', prompt, model),
   stop: () => ipcRenderer.invoke('stop'),

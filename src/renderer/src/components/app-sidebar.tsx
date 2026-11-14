@@ -1,4 +1,4 @@
-import { FolderIcon, LoaderCircleIcon, PlusIcon } from 'lucide-react'
+import { FolderIcon, LoaderCircleIcon, MessageCircleIcon, PlusIcon } from 'lucide-react'
 
 import {
   Sidebar,
@@ -14,13 +14,15 @@ import {
 } from '@/components/ui/sidebar'
 import type { Thread } from '../../../shared'
 
-export type Active = { id?: string; cwd: string }
+// `cwd` is unset until a "No project" thread gets its scratch folder; `folder` is unset for "No project".
+export type Active = { id?: string; cwd?: string; folder?: string }
 
-const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
+export const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
 
 function ThreadButton(props: {
   title: string
-  cwd: string
+  cwd?: string
+  folder?: string
   active: boolean
   running: boolean
   disabled?: boolean
@@ -32,7 +34,7 @@ function ThreadButton(props: {
         isActive={props.active}
         disabled={props.disabled}
         onClick={props.onClick}
-        title={props.cwd}
+        title={props.folder && props.cwd}
         className="h-auto flex-col items-start gap-0.5 py-2"
       >
         <span className="flex w-full items-center gap-2">
@@ -40,8 +42,12 @@ function ThreadButton(props: {
           {props.running && <LoaderCircleIcon className="ml-auto size-3.5 shrink-0 animate-spin" />}
         </span>
         <span className="flex w-full items-center gap-1 text-xs text-muted-foreground">
-          <FolderIcon className="size-3 shrink-0" />
-          <span className="truncate">{folderName(props.cwd)}</span>
+          {props.folder ? (
+            <FolderIcon className="size-3 shrink-0" />
+          ) : (
+            <MessageCircleIcon className="size-3 shrink-0" />
+          )}
+          <span className="truncate">{props.folder ?? 'No project'}</span>
         </span>
       </SidebarMenuButton>
     </SidebarMenuItem>
@@ -50,7 +56,7 @@ function ThreadButton(props: {
 
 export function AppSidebar(props: {
   threads: Thread[]
-  active?: Active
+  active: Active
   busy: boolean
   onNew: () => void
   onOpen: (thread: Thread) => void
@@ -63,7 +69,7 @@ export function AppSidebar(props: {
         {/* Left padding leaves room for the macOS traffic lights. */}
         <div className="flex h-9 items-center gap-2 pl-18 fullscreen:pl-2">
           <SidebarTrigger className="[-webkit-app-region:no-drag]" />
-          <span className="text-sm font-medium">Clankr</span>
+          <span className="font-heming text-sm font-medium [text-box:trim-both_cap_alphabetic]">Clankr</span>
         </div>
         <SidebarMenu className="[-webkit-app-region:no-drag]">
           <SidebarMenuItem>
@@ -79,19 +85,22 @@ export function AppSidebar(props: {
           <SidebarGroupLabel>Threads</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {active && !active.id && <ThreadButton title="New thread" cwd={active.cwd} active running={busy} />}
+              {!active.id && busy && (
+                <ThreadButton title="New thread" cwd={active.cwd} folder={active.folder} active running />
+              )}
               {threads.map((t) => (
                 <ThreadButton
                   key={t.id}
                   title={t.title}
                   cwd={t.cwd}
-                  active={t.id === active?.id}
-                  running={busy && t.id === active?.id}
+                  folder={t.folder}
+                  active={t.id === active.id}
+                  running={busy && t.id === active.id}
                   disabled={busy}
                   onClick={() => props.onOpen(t)}
                 />
               ))}
-              {threads.length === 0 && !active && (
+              {threads.length === 0 && !busy && (
                 <p className="px-2 py-1 text-xs text-muted-foreground">No threads yet.</p>
               )}
             </SidebarMenu>
