@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import { spawn, type IPty } from '@lydell/node-pty'
+import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
@@ -455,6 +456,34 @@ ipcMain.on('term-resize', (_, cols: number, rows: number) => shell?.resize(cols,
 ipcMain.on('term-kill', () => {
   shell?.kill()
   shell = undefined
+})
+
+// Resolves stdout even on a non-zero exit, since `git diff --no-index` exits 1 when files differ.
+const git = (cwd: string, args: string[]) =>
+  new Promise<string>((resolve, reject) =>
+    execFile('git', args, { cwd, maxBuffer: 64 * 1024 * 1024 }, (err, stdout) =>
+      err && !stdout && err.code !== 1 ? reject(err) : resolve(stdout),
+    ),
+  )
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+// Uncommitted changes as one patch, including untracked files; undefined outside a git repo.
+ipcMain.handle('diff', async (_, dir: string): Promise<string | undefined> => {
+  // From the repo root, so untracked paths match tracked ones and cover the whole repo.
+  let cwd: string
+  try {
+    cwd = (await git(dir, ['rev-parse', '--show-toplevel'])).trim()
+  } catch {
+    return undefined
+  }
+  const base = await git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD']).then((s) => s.trim() || EMPTY_TREE)
+  const tracked = await git(cwd, ['diff', '--no-color', base])
+  // shortcut: caps untracked files at 200, raise if large untracked trees matter.
+  const untracked = (await git(cwd, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean)
+  const added = await Promise.all(
+    untracked.slice(0, 200).map((f) => git(cwd, ['diff', '--no-color', '--no-index', '--', '/dev/null', f])),
+  )
+  return tracked + added.join('')
 })
 
 app.whenReady().then(() => {

@@ -22,6 +22,7 @@ const api: Api = {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   piInfo: () => ipcRenderer.invoke('pi-info'),
   openSettings: () => ipcRenderer.send('open-settings'),
+  diff: (cwd) => ipcRenderer.invoke('diff', cwd),
   onChanged: (cb) => listen('changed', cb),
   onEvent: (cb) => {
     const listener = (_: IpcRendererEvent, e: AgentEvent) => cb(e)

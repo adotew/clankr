@@ -32,6 +32,8 @@ export type Api = {
   saveSettings: (settings: Settings) => Promise<void>
   piInfo: () => Promise<PiInfo>
   openSettings: () => void
+  // Uncommitted changes in `cwd` as a unified patch; undefined when it isn't a git repo.
+  diff: (cwd: string) => Promise<string | undefined>
   onChanged: (cb: () => void) => () => void
   onEvent: (cb: (e: AgentEvent) => void) => () => void
   term: {

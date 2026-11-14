@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from 'react'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -14,7 +14,7 @@ import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
-import { TerminalPanel } from '@/components/terminal-panel'
+import { TerminalPanel, type PanelView } from '@/components/terminal-panel'
 import { useStoredWidth } from '@/components/resize-handle'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
@@ -251,12 +251,22 @@ export function App() {
   const [busy, setBusy] = useState(false)
   // 'hidden' keeps the shell running while the panel is closed.
   const [terminal, setTerminal] = useState<'off' | 'open' | 'hidden'>('off')
+  const [panelView, setPanelView] = useState<PanelView>('terminal')
+  const panel = useRef({ terminal, panelView })
+  panel.current = { terminal, panelView }
 
   useEffect(() => {
+    // Shows `view` in the panel, or hides the panel if `view` is already showing.
+    const toggle = (view: PanelView) => {
+      const { terminal, panelView } = panel.current
+      setTerminal(terminal === 'open' && panelView === view ? 'hidden' : 'open')
+      setPanelView(view)
+    }
     // Capture phase so the shortcut still works while the terminal has focus.
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return
-      if (e.code === 'KeyJ') setTerminal((t) => (t === 'open' ? 'hidden' : 'open'))
+      if (e.code === 'KeyJ') toggle('terminal')
+      else if (e.code === 'KeyD') toggle('diff')
       else if (e.code === 'Comma') window.api.openSettings()
       else return
       e.preventDefault()
@@ -481,6 +491,8 @@ export function App() {
             key={active.cwd}
             cwd={active.cwd}
             visible={terminal === 'open'}
+            view={panelView}
+            onView={setPanelView}
             onExit={() => setTerminal('off')}
           />
         )}

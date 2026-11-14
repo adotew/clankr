@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
 
+import { cn } from '@/lib/utils'
 import { cursorTrail } from './cursor-trail'
+import { DiffView } from './diff-view'
 import { ResizeHandle, useStoredWidth } from './resize-handle'
 
 const font = '"JetBrainsMono Nerd Font", "JetBrainsMono NF", monospace'
@@ -64,9 +66,24 @@ const themes = {
   },
 }
 
-export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible: boolean; onExit: () => void }) {
+export type PanelView = 'terminal' | 'diff'
+
+export function TerminalPanel({
+  cwd,
+  visible,
+  view,
+  onView,
+  onExit,
+}: {
+  cwd?: string
+  visible: boolean
+  view: PanelView
+  onView: (view: PanelView) => void
+  onExit: () => void
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>(null)
+  const asideRef = useRef<HTMLElement>(null)
   const [width, setWidth] = useStoredWidth('terminalWidth', Math.round(innerWidth * 0.42))
 
   useEffect(() => {
@@ -92,7 +109,7 @@ export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible:
       // ghostty-web sends Cmd shortcuts to the shell and cancels them, so Cmd+Q, Cmd+W and the
       // menu never fire. Stop them above the terminal; the app's own handlers run earlier, on window.
       const passCmd = (e: KeyboardEvent) => e.metaKey && e.stopPropagation()
-      const aside = ref.current.parentElement
+      const aside = asideRef.current
       aside?.addEventListener('keydown', passCmd, true)
       cleanups.push(() => aside?.removeEventListener('keydown', passCmd, true))
       const canvas = ref.current.querySelector('canvas')
@@ -121,11 +138,12 @@ export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible:
   }, [cwd])
 
   useEffect(() => {
-    if (visible) termRef.current?.focus()
-  }, [visible])
+    if (visible && view === 'terminal') termRef.current?.focus()
+  }, [visible, view])
 
   return (
     <aside
+      ref={asideRef}
       className={
         visible
           ? 'relative m-2 flex max-w-[70%] min-w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-sidebar/50 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl'
@@ -142,15 +160,37 @@ export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible:
               320,
               Math.min(
                 innerWidth - 8 - x,
-                (ref.current?.parentElement?.parentElement?.clientWidth ?? innerWidth) * 0.7,
+                (asideRef.current?.parentElement?.clientWidth ?? innerWidth) * 0.7,
               ),
             ),
           )
         }
         className="left-0"
       />
-      <div className="h-9 shrink-0 [-webkit-app-region:drag]" />
-      <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden pl-2 caret-transparent" />
+      <div className="flex h-9 shrink-0 items-center gap-1 px-2 [-webkit-app-region:drag]">
+        {(['terminal', 'diff'] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => onView(v)}
+            aria-pressed={view === v}
+            className="rounded-md px-2 py-0.5 text-xs text-muted-foreground capitalize [-webkit-app-region:no-drag] hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground"
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Hidden with `invisible`, not `hidden`, so the terminal keeps its size and doesn't reflow. */}
+        <div
+          ref={ref}
+          className={cn('min-h-0 flex-1 overflow-hidden pl-2 caret-transparent', view !== 'terminal' && 'invisible')}
+        />
+        {view === 'diff' && (
+          <div className="absolute inset-0 flex flex-col">
+            <DiffView cwd={cwd} visible={visible} />
+          </div>
+        )}
+      </div>
     </aside>
   )
 }
