@@ -5,17 +5,27 @@ const font = '"JetBrainsMono Nerd Font", "JetBrainsMono NF", monospace'
 
 // Make ghostty-web render like native Ghostty.
 type Metrics = { width: number; height: number; baseline: number }
+// SAFETY: these are private CanvasRenderer members in ghostty-web 0.4; recheck when upgrading.
 const renderer = CanvasRenderer.prototype as unknown as {
   measureFont(this: { fontSize: number; fontFamily: string }): Metrics
-  resize(this: { ctx: CanvasRenderingContext2D }, cols: number, rows: number): void
+  resize(this: { ctx: CanvasRenderingContext2D; theme: { background: string } }, cols: number, rows: number): void
 }
+const transparent = new WeakSet<CanvasRenderingContext2D>()
 
 // Chromium hints and smooths canvas text on macOS, making glyphs ~30% heavier than Ghostty's.
 // Resizing the canvas resets its state, so reapply after every resize.
+// Also clear wherever ghostty-web paints the theme background, so the translucent panel shows through.
 const resize = renderer.resize
 renderer.resize = function (cols, rows) {
   resize.call(this, cols, rows)
-  this.ctx.textRendering = 'geometricPrecision'
+  const ctx = this.ctx
+  ctx.textRendering = 'geometricPrecision'
+  if (transparent.has(ctx)) return
+  transparent.add(ctx)
+  const fillRect = ctx.fillRect.bind(ctx)
+  ctx.fillRect = (x, y, w, h) =>
+    ctx.fillStyle === this.theme.background.toLowerCase() ? ctx.clearRect(x, y, w, h) : fillRect(x, y, w, h)
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
 }
 
 // Size cells like Ghostty: the font's advance and line height snapped to device pixels.
@@ -103,7 +113,13 @@ export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible:
   }, [visible])
 
   return (
-    <aside className={visible ? 'flex w-[42%] min-w-80 shrink-0 flex-col border-l bg-background' : 'hidden'}>
+    <aside
+      className={
+        visible
+          ? 'm-2 flex w-[42%] min-w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-sidebar/50 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl'
+          : 'hidden'
+      }
+    >
       <div className="h-9 shrink-0 [-webkit-app-region:drag]" />
       <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden pl-2 caret-transparent" />
     </aside>
