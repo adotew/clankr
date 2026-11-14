@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Columns2Icon, Rows2Icon } from 'lucide-react'
 import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
 
 import { cn } from '@/lib/utils'
@@ -69,6 +70,124 @@ const themes = {
 
 export type PanelView = 'terminal' | 'diff' | 'browser'
 
+// Unique across panel remounts, so a late exit from an old shell can't close a new pane.
+let nextPane = 0
+
+function TerminalPane({
+  cwd,
+  focused,
+  onFocus,
+  onExit,
+}: {
+  cwd?: string
+  focused: boolean
+  onFocus: () => void
+  onExit: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal>(null)
+
+  useEffect(() => {
+    let disposed = false
+    const cleanups: (() => void)[] = []
+    const id = nextPane++
+
+    ;(async () => {
+      await Promise.all([init(), document.fonts.load(`12px ${font}`)])
+      if (disposed || !ref.current) return
+      const dark = document.documentElement.classList.contains('dark')
+      const term = new Terminal({
+        fontSize: 12,
+        fontFamily: font,
+        cursorBlink: focused,
+        cursorStyle: focused ? 'block' : 'underline',
+        theme: dark ? themes.dark : themes.light,
+      })
+      const fit = new FitAddon()
+      term.loadAddon(fit)
+      term.open(ref.current)
+      fit.fit()
+      fit.observeResize()
+      termRef.current = term
+      const canvas = ref.current.querySelector('canvas')
+      if (canvas) cleanups.push(cursorTrail(canvas))
+
+      window.api.term.start(id, cwd, term.cols, term.rows)
+      const input = term.onData((data) => window.api.term.input(id, data))
+      const resize = term.onResize(({ cols, rows }) => window.api.term.resize(id, cols, rows))
+      cleanups.push(
+        window.api.term.onData((pane, data) => pane === id && term.write(data)),
+        window.api.term.onExit((pane) => pane === id && onExit()),
+        () => input.dispose(),
+        () => resize.dispose(),
+        () => term.dispose(),
+        () => window.api.term.kill(id),
+      )
+      if (focused) term.focus()
+    })()
+
+    return () => {
+      disposed = true
+      termRef.current = null
+      for (const fn of cleanups) fn()
+    }
+    // A pane keeps its shell for life; a new folder remounts the whole panel.
+  }, [])
+
+  // Only the active pane gets a blinking block cursor; the rest show a still underline.
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    term.options.cursorBlink = focused
+    term.options.cursorStyle = focused ? 'block' : 'underline'
+    if (focused) term.focus()
+  }, [focused])
+
+  return (
+    <div
+      ref={ref}
+      onFocus={onFocus}
+      className={cn(
+        'h-full overflow-hidden rounded-xl bg-sidebar/40 pt-1 pl-2 caret-transparent ring-1 transition-[opacity,box-shadow]',
+        focused ? 'ring-foreground/30' : 'ring-sidebar-border opacity-60',
+      )}
+    />
+  )
+}
+
+// Panes form a tree of splits; 'row' lays children side by side, 'col' stacks them.
+type Dir = 'row' | 'col'
+type Layout = { pane: number } | { dir: Dir; children: Layout[] }
+type Rect = { x: number; y: number; w: number; h: number }
+
+function splitPane(node: Layout, target: number, dir: Dir, pane: number): Layout {
+  if ('pane' in node) return node.pane === target ? { dir, children: [node, { pane }] } : node
+  const i = node.children.findIndex((c) => 'pane' in c && c.pane === target)
+  if (node.dir === dir && i >= 0) return { dir, children: node.children.toSpliced(i + 1, 0, { pane }) }
+  return { dir: node.dir, children: node.children.map((c) => splitPane(c, target, dir, pane)) }
+}
+
+function removePane(node: Layout, target: number): Layout | undefined {
+  if ('pane' in node) return node.pane === target ? undefined : node
+  const children = node.children.flatMap((c) => removePane(c, target) ?? [])
+  return children.length > 1 ? { dir: node.dir, children } : children[0]
+}
+
+// Flattened to absolute rects (in fractions of the area) so splitting never remounts a pane and kills its shell.
+function rects(node: Layout | undefined, r: Rect = { x: 0, y: 0, w: 1, h: 1 }): [number, Rect][] {
+  if (!node) return []
+  if ('pane' in node) return [[node.pane, r]]
+  const n = node.children.length
+  return node.children.flatMap((c, i) =>
+    rects(
+      c,
+      node.dir === 'row' ? { ...r, x: r.x + (r.w * i) / n, w: r.w / n } : { ...r, y: r.y + (r.h * i) / n, h: r.h / n },
+    ),
+  )
+}
+
+const pct = (n: number) => `${n * 100}%`
+
 export function TerminalPanel({
   cwd,
   visible,
@@ -82,67 +201,45 @@ export function TerminalPanel({
   onView: (view: PanelView) => void
   onExit: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const termRef = useRef<Terminal>(null)
   const asideRef = useRef<HTMLElement>(null)
   const browserOpened = useRef(false)
   if (view === 'browser') browserOpened.current = true
   const [width, setWidth] = useStoredWidth('terminalWidth', Math.round(innerWidth * 0.42))
+  const [layout, setLayout] = useState<Layout | undefined>({ pane: 0 })
+  const [active, setActive] = useState(0)
+  const nextId = useRef(1)
+  const panes = rects(layout)
+  const split = (dir: Dir) => {
+    if (!layout) return
+    const pane = nextId.current++
+    setLayout(splitPane(layout, active, dir, pane))
+    setActive(pane)
+  }
+  const latest = useRef({ split })
+  latest.current = { split }
 
   useEffect(() => {
-    let disposed = false
-    const cleanups: (() => void)[] = []
+    if (panes.length === 0) onExit()
+    else if (!panes.some(([p]) => p === active)) setActive(panes[panes.length - 1][0])
+  }, [layout])
 
-    ;(async () => {
-      await Promise.all([init(), document.fonts.load(`12px ${font}`)])
-      if (disposed || !ref.current) return
-      const dark = document.documentElement.classList.contains('dark')
-      const term = new Terminal({
-        fontSize: 12,
-        fontFamily: font,
-        cursorBlink: true,
-        theme: dark ? themes.dark : themes.light,
-      })
-      const fit = new FitAddon()
-      term.loadAddon(fit)
-      term.open(ref.current)
-      fit.fit()
-      fit.observeResize()
-      termRef.current = term
-      // ghostty-web sends Cmd shortcuts to the shell and cancels them, so Cmd+Q, Cmd+W and the
-      // menu never fire. Stop them above the terminal; the app's own handlers run earlier, on window.
-      const passCmd = (e: KeyboardEvent) => e.metaKey && e.stopPropagation()
-      const aside = asideRef.current
-      aside?.addEventListener('keydown', passCmd, true)
-      cleanups.push(() => aside?.removeEventListener('keydown', passCmd, true))
-      const canvas = ref.current.querySelector('canvas')
-      if (canvas) cleanups.push(cursorTrail(canvas))
-
-      window.api.term.start(cwd, term.cols, term.rows)
-      const input = term.onData((data) => window.api.term.input(data))
-      const resize = term.onResize(({ cols, rows }) => window.api.term.resize(cols, rows))
-      cleanups.push(
-        window.api.term.onData((data) => term.write(data)),
-        window.api.term.onExit(onExit),
-        () => input.dispose(),
-        () => resize.dispose(),
-        () => term.dispose(),
-        () => window.api.term.kill(),
-      )
-      term.focus()
-    })()
-
-    return () => {
-      disposed = true
-      termRef.current = null
-      for (const fn of cleanups) fn()
+  useEffect(() => {
+    // ghostty-web sends Cmd shortcuts to the shell and cancels them, so Cmd+Q, Cmd+W and the
+    // menu never fire. Stop them above the terminal; the app's own handlers run earlier, on window.
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey) return
+      e.stopPropagation()
+      if (e.altKey || e.ctrlKey) return
+      // Cmd+Shift+D splits down, as in Ghostty; Cmd+\ splits right, since Cmd+D toggles the diff.
+      const dir = e.shiftKey && e.code === 'KeyD' ? 'col' : !e.shiftKey && e.code === 'Backslash' ? 'row' : undefined
+      if (!dir) return
+      e.preventDefault()
+      latest.current.split(dir)
     }
-    // Only a new folder restarts the shell.
-  }, [cwd])
-
-  useEffect(() => {
-    if (visible && view === 'terminal') termRef.current?.focus()
-  }, [visible, view])
+    const aside = asideRef.current
+    aside?.addEventListener('keydown', onKey, true)
+    return () => aside?.removeEventListener('keydown', onKey, true)
+  }, [])
 
   return (
     <aside
@@ -182,13 +279,47 @@ export function TerminalPanel({
             {v}
           </button>
         ))}
+        {view === 'terminal' && (
+          <div className="ml-auto flex [-webkit-app-region:no-drag]">
+            {(
+              [
+                ['row', 'Split right (⌘\\)', <Columns2Icon key="row" />],
+                ['col', 'Split down (⌘⇧D)', <Rows2Icon key="col" />],
+              ] as const
+            ).map(([dir, label, icon]) => (
+              <button
+                type="button"
+                key={dir}
+                onClick={() => split(dir)}
+                aria-label={label}
+                title={label}
+                className="rounded-md p-1 text-muted-foreground hover:text-foreground [&_svg]:size-3.5"
+              >
+                {icon}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {/* Hidden with `invisible`, not `hidden`, so the terminal keeps its size and doesn't reflow. */}
-        <div
-          ref={ref}
-          className={cn('min-h-0 flex-1 overflow-hidden pl-2 caret-transparent', view !== 'terminal' && 'invisible')}
-        />
+        {/* Hidden with `invisible`, not `hidden`, so the terminals keep their size and don't reflow. */}
+        {/* Each pane is padded 3px, so neighbours sit 6px apart and 8px from the panel edge. */}
+        <div className={cn('relative mx-[5px] mb-[5px] min-h-0 flex-1', view !== 'terminal' && 'invisible')}>
+          {panes.map(([pane, r]) => (
+            <div
+              key={pane}
+              className="absolute p-[3px]"
+              style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
+            >
+              <TerminalPane
+                cwd={cwd}
+                focused={visible && view === 'terminal' && active === pane}
+                onFocus={() => setActive(pane)}
+                onExit={() => setLayout((l) => l && removePane(l, pane))}
+              />
+            </div>
+          ))}
+        </div>
         {view === 'diff' && (
           <div className="absolute inset-0 flex flex-col">
             <DiffView cwd={cwd} visible={visible} />

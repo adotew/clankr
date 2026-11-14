@@ -30,16 +30,20 @@ const api: Api = {
     return () => ipcRenderer.removeListener('agent:event', listener)
   },
   term: {
-    start: (cwd, cols, rows) => ipcRenderer.send('term-start', cwd, cols, rows),
-    input: (data) => ipcRenderer.send('term-input', data),
-    resize: (cols, rows) => ipcRenderer.send('term-resize', cols, rows),
-    kill: () => ipcRenderer.send('term-kill'),
+    start: (id, cwd, cols, rows) => ipcRenderer.send('term-start', id, cwd, cols, rows),
+    input: (id, data) => ipcRenderer.send('term-input', id, data),
+    resize: (id, cols, rows) => ipcRenderer.send('term-resize', id, cols, rows),
+    kill: (id) => ipcRenderer.send('term-kill', id),
     onData: (cb) => {
-      const listener = (_: IpcRendererEvent, data: string) => cb(data)
+      const listener = (_: IpcRendererEvent, id: number, data: string) => cb(id, data)
       ipcRenderer.on('term:data', listener)
       return () => ipcRenderer.removeListener('term:data', listener)
     },
-    onExit: (cb) => listen('term:exit', cb),
+    onExit: (cb) => {
+      const listener = (_: IpcRendererEvent, id: number) => cb(id)
+      ipcRenderer.on('term:exit', listener)
+      return () => ipcRenderer.removeListener('term:exit', listener)
+    },
   },
 }
 

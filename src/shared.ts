@@ -39,12 +39,12 @@ export type Api = {
   onChanged: (cb: () => void) => () => void
   onEvent: (cb: (e: AgentEvent) => void) => () => void
   term: {
-    start: (cwd: string | undefined, cols: number, rows: number) => void
-    input: (data: string) => void
-    resize: (cols: number, rows: number) => void
-    kill: () => void
-    onData: (cb: (data: string) => void) => () => void
-    onExit: (cb: () => void) => () => void
+    start: (id: number, cwd: string | undefined, cols: number, rows: number) => void
+    input: (id: number, data: string) => void
+    resize: (id: number, cols: number, rows: number) => void
+    kill: (id: number) => void
+    onData: (cb: (id: number, data: string) => void) => () => void
+    onExit: (cb: (id: number) => void) => () => void
   }
 }
 

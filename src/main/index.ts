@@ -460,11 +460,11 @@ ipcMain.on('reply', (_, id: string, answer: boolean | string | undefined) => {
   pending.delete(id)
 })
 
-// One shell at a time; opening a terminal in a new folder replaces the old one.
-let shell: IPty | undefined
+// One shell per terminal pane, keyed by the renderer's pane ID.
+const shells = new Map<number, IPty>()
 
-ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number) => {
-  shell?.kill()
+ipcMain.on('term-start', (_, id: number, cwd: string | undefined, cols: number, rows: number) => {
+  shells.get(id)?.kill()
   const pty = spawn(process.env.SHELL ?? '/bin/zsh', ['-l'], {
     name: 'xterm-256color',
     cwd: cwd ?? homedir(),
@@ -472,19 +472,19 @@ ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number
     rows,
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
   })
-  shell = pty
-  pty.onData((data) => win.webContents.send('term:data', data))
+  shells.set(id, pty)
+  pty.onData((data) => win.webContents.send('term:data', id, data))
   pty.onExit(() => {
-    if (shell !== pty) return
-    shell = undefined
-    win.webContents.send('term:exit')
+    if (shells.get(id) !== pty) return
+    shells.delete(id)
+    win.webContents.send('term:exit', id)
   })
 })
-ipcMain.on('term-input', (_, data: string) => shell?.write(data))
-ipcMain.on('term-resize', (_, cols: number, rows: number) => shell?.resize(cols, rows))
-ipcMain.on('term-kill', () => {
-  shell?.kill()
-  shell = undefined
+ipcMain.on('term-input', (_, id: number, data: string) => shells.get(id)?.write(data))
+ipcMain.on('term-resize', (_, id: number, cols: number, rows: number) => shells.get(id)?.resize(cols, rows))
+ipcMain.on('term-kill', (_, id: number) => {
+  shells.get(id)?.kill()
+  shells.delete(id)
 })
 
 // Resolves stdout even on a non-zero exit, since `git diff --no-index` exits 1 when files differ.
@@ -556,7 +556,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  shell?.kill()
+  for (const pty of shells.values()) pty.kill()
   closePi()
   app.quit()
 })
