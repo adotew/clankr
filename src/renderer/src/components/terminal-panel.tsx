@@ -16,6 +16,8 @@ type Metrics = { width: number; height: number; baseline: number }
 const renderer = CanvasRenderer.prototype as unknown as {
   measureFont(this: { fontSize: number; fontFamily: string }): Metrics
   resize(this: { ctx: CanvasRenderingContext2D; theme: { background: string } }, cols: number, rows: number): void
+  render(this: { ctx: CanvasRenderingContext2D }, buffer: unknown, forceAll?: boolean, ...rest: unknown[]): void
+  renderCursor(this: { ctx: CanvasRenderingContext2D }, x: number, y: number): void
 }
 const transparent = new WeakSet<CanvasRenderingContext2D>()
 
@@ -33,6 +35,19 @@ renderer.resize = function (cols, rows) {
   ctx.fillRect = (x, y, w, h) =>
     ctx.fillStyle === this.theme.background.toLowerCase() ? ctx.clearRect(x, y, w, h) : fillRect(x, y, w, h)
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+}
+
+// Inactive panes draw no cursor. ghostty-web only repaints the cursor's row when it moves or blinks,
+// so a pane whose focus changed repaints fully once to clear or restore it.
+const idle = new WeakSet<HTMLCanvasElement>()
+const repaint = new WeakSet<HTMLCanvasElement>()
+const renderCursor = renderer.renderCursor
+renderer.renderCursor = function (x, y) {
+  if (!idle.has(this.ctx.canvas)) renderCursor.call(this, x, y)
+}
+const render = renderer.render
+renderer.render = function (buffer, forceAll, ...rest) {
+  render.call(this, buffer, forceAll || repaint.delete(this.ctx.canvas), ...rest)
 }
 
 // Size cells like Ghostty: the font's advance and line height snapped to device pixels.
@@ -94,6 +109,8 @@ function TerminalPane({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>(null)
+  const focusedRef = useRef(focused)
+  focusedRef.current = focused
 
   useEffect(() => {
     let disposed = false
@@ -108,7 +125,6 @@ function TerminalPane({
         fontSize: 12,
         fontFamily: font,
         cursorBlink: focused,
-        cursorStyle: focused ? 'block' : 'underline',
         theme: dark ? themes.dark : themes.light,
       })
       const fit = new FitAddon()
@@ -118,7 +134,10 @@ function TerminalPane({
       fit.observeResize()
       termRef.current = term
       const canvas = ref.current.querySelector('canvas')
-      if (canvas) cleanups.push(cursorTrail(canvas))
+      if (canvas) {
+        cleanups.push(cursorTrail(canvas))
+        if (!focusedRef.current) idle.add(canvas)
+      }
 
       window.api.term.start(id, cwd, term.cols, term.rows)
       const input = term.onData((data) => window.api.term.input(id, data))
@@ -142,12 +161,15 @@ function TerminalPane({
     // A pane keeps its shell for life; a new folder remounts the whole panel.
   }, [])
 
-  // Only the active pane gets a blinking block cursor; the rest show a still underline.
+  // Only the active pane shows a cursor.
   useEffect(() => {
     const term = termRef.current
-    if (!term) return
+    const canvas = ref.current?.querySelector('canvas')
+    if (!term || !canvas) return
     term.options.cursorBlink = focused
-    term.options.cursorStyle = focused ? 'block' : 'underline'
+    if (focused) idle.delete(canvas)
+    else idle.add(canvas)
+    repaint.add(canvas)
     if (focused) term.focus()
   }, [focused])
 
