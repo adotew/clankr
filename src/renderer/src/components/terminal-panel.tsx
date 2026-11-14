@@ -89,6 +89,12 @@ export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible:
       fit.fit()
       fit.observeResize()
       termRef.current = term
+      // ghostty-web sends Cmd shortcuts to the shell and cancels them, so Cmd+Q, Cmd+W and the
+      // menu never fire. Stop them above the terminal; the app's own handlers run earlier, on window.
+      const passCmd = (e: KeyboardEvent) => e.metaKey && e.stopPropagation()
+      const aside = ref.current.parentElement
+      aside?.addEventListener('keydown', passCmd, true)
+      cleanups.push(() => aside?.removeEventListener('keydown', passCmd, true))
       const canvas = ref.current.querySelector('canvas')
       if (canvas) cleanups.push(cursorTrail(canvas))
 

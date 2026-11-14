@@ -96,15 +96,14 @@ function SidebarProvider({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
+        event.metaKey
       ) {
         event.preventDefault()
-        event.stopPropagation()
         toggleSidebar()
       }
     }
 
-    // Capture phase: the terminal stops propagation of the keys it handles, which would swallow the shortcut.
+    // Capture phase: Cmd shortcuts don't propagate into the terminal. Cmd only, so Ctrl+B still reaches the shell.
     window.addEventListener("keydown", handleKeyDown, true)
     return () => window.removeEventListener("keydown", handleKeyDown, true)
   }, [toggleSidebar])
