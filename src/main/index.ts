@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } from 'electron'
 import { spawn, type IPty } from '@lydell/node-pty'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -220,7 +220,7 @@ ipcMain.handle('save-settings', async (_, next: Settings) => {
   changed()
 })
 
-ipcMain.on('open-settings', () => {
+const openSettings = () => {
   if (settingsWin) return settingsWin.focus()
   settingsWin = new BrowserWindow({
     width: 520,
@@ -235,7 +235,8 @@ ipcMain.on('open-settings', () => {
   })
   settingsWin.on('closed', () => (settingsWin = undefined))
   load(settingsWin, '#settings')
-})
+}
+ipcMain.on('open-settings', openSettings)
 
 ipcMain.handle('pi-info', async (): Promise<PiInfo> => {
   const version = await piVersion(piBin)
@@ -487,6 +488,30 @@ ipcMain.handle('diff', async (_, dir: string): Promise<string | undefined> => {
 })
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' },
+        ],
+      },
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]),
+  )
   win = new BrowserWindow({
     width: 1200,
     height: 820,

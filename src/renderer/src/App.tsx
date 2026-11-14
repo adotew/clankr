@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -6,17 +6,22 @@ import {
   CopyIcon,
   FolderIcon,
   FolderOpenIcon,
+  GitCompareIcon,
+  LoaderCircleIcon,
+  MessagesSquareIcon,
+  PlusIcon,
+  SettingsIcon,
+  SquareTerminalIcon,
   MessageCircleIcon,
   ShieldQuestionIcon,
 } from 'lucide-react'
 
-import { AppSidebar, folderName, type Active } from '@/components/app-sidebar'
 import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
 import { TerminalPanel, type PanelView } from '@/components/terminal-panel'
-import { useStoredWidth } from '@/components/resize-handle'
+import { Palette, type PaletteRow } from '@/components/palette'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
@@ -32,7 +37,6 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller'
-import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar'
 import { Trace } from '@/components/ui/trace'
 import type { AgentEvent, Backend, Model, Thread } from '../../shared'
 
@@ -157,18 +161,32 @@ function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: bo
   )
 }
 
-// Invisible strip for dragging the window; shows the sidebar toggle while the sidebar is hidden.
-function TitleBar() {
-  const { open } = useSidebar()
+// `cwd` is unset until a "No project" thread gets its scratch folder; `folder` is unset for "No project".
+type Active = { id?: string; cwd?: string; folder?: string; backend?: Backend }
+
+const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
+
+// Window drag strip showing the current thread; clicking it opens the thread switcher.
+function TitleBar({ title, folder, busy, onClick }: { title: string; folder?: string; busy: boolean; onClick: () => void }) {
   return (
     <div className="absolute inset-x-0 top-0 z-10 h-11 [-webkit-app-region:drag]">
-      {/* Mirrors the floating sidebar's top row so the traffic lights and toggle stay put when it closes. */}
-      {!open && (
-        <div className="absolute top-2 left-2 flex h-9 items-center gap-2 rounded-2xl bg-sidebar/50 pr-3 pl-20 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl fullscreen:pl-2">
-          <SidebarTrigger className="[-webkit-app-region:no-drag]" />
-          <span className="font-heming text-sm font-medium [text-box:trim-both_cap_alphabetic]">Clankr</span>
-        </div>
-      )}
+      {/* Left padding leaves room for the macOS traffic lights. */}
+      <div className="absolute top-2 left-2 flex h-9 items-center pl-20 fullscreen:pl-2">
+        <button
+          type="button"
+          onClick={onClick}
+          title="Switch thread (⌘P)"
+          className="flex h-7 max-w-96 items-center gap-1.5 rounded-lg px-2 text-sm text-foreground/80 transition-colors outline-none [-webkit-app-region:no-drag] hover:bg-foreground/10 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <span className="truncate font-medium">{title}</span>
+          <span className="shrink-0 text-muted-foreground">· {folder ?? 'No project'}</span>
+          {busy ? (
+            <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+        </button>
+      </div>
     </div>
   )
 }
@@ -237,7 +255,6 @@ function AskCard({ ask, onReply }: { ask: Ask; onReply: (answer: Answer) => void
 }
 
 export function App() {
-  const [sidebarWidth, setSidebarWidth] = useStoredWidth('sidebarWidth', 256)
   const [threads, setThreads] = useState<Thread[]>([])
   // Starts in "No project": a plain chat without any project context.
   const [active, setActive] = useState<Active>({})
@@ -254,23 +271,31 @@ export function App() {
   // 'hidden' keeps the shell running while the panel is closed.
   const [terminal, setTerminal] = useState<'off' | 'open' | 'hidden'>('off')
   const [panelView, setPanelView] = useState<PanelView>('terminal')
-  const panel = useRef({ terminal, panelView })
-  panel.current = { terminal, panelView }
+  const [palette, setPalette] = useState<'commands' | 'threads'>()
+  // Lets the keydown listener, registered once, see the latest state.
+  const latest = useRef({ terminal, panelView, busy, newThread: () => {} })
+
+  // Shows `view` in the panel, or hides the panel if `view` is already showing.
+  const toggle = (view: PanelView) => {
+    const { terminal, panelView } = latest.current
+    setTerminal(terminal === 'open' && panelView === view ? 'hidden' : 'open')
+    setPanelView(view)
+  }
+  const togglePalette = (p: 'commands' | 'threads') => setPalette((x) => (x === p ? undefined : p))
 
   useEffect(() => {
-    // Shows `view` in the panel, or hides the panel if `view` is already showing.
-    const toggle = (view: PanelView) => {
-      const { terminal, panelView } = panel.current
-      setTerminal(terminal === 'open' && panelView === view ? 'hidden' : 'open')
-      setPanelView(view)
-    }
     // Capture phase so the shortcut still works while the terminal has focus.
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return
-      if (e.code === 'KeyJ') toggle('terminal')
+      if (!e.metaKey || e.altKey || e.ctrlKey) return
+      if (e.shiftKey) {
+        if (e.code !== 'KeyP') return
+        togglePalette('commands')
+      } else if (e.code === 'KeyJ') toggle('terminal')
       else if (e.code === 'KeyD') toggle('diff')
-      else if (e.code === 'Comma') window.api.openSettings()
-      else return
+      else if (e.code === 'KeyP') togglePalette('threads')
+      else if (e.code === 'KeyN') {
+        if (!latest.current.busy) latest.current.newThread()
+      } else return
       e.preventDefault()
       e.stopPropagation()
     }
@@ -328,6 +353,7 @@ export function App() {
 
   // A "No project" thread's scratch folder is never reused; the next one gets its own.
   const newThread = () => chooseProject(active.folder ? active.cwd : undefined)
+  latest.current = { terminal, panelView, busy, newThread }
 
   const openThread = async (thread: Thread) => {
     setActive({ id: thread.id, cwd: thread.cwd, folder: thread.folder, backend: thread.backend })
@@ -364,6 +390,27 @@ export function App() {
     setAsks((xs) => xs.filter((x) => x.id !== id))
   }
 
+  // The main process ignores thread changes mid-turn.
+  const commands: PaletteRow[] = [
+    { key: 'new', label: 'New thread', icon: <PlusIcon />, hint: '⌘N', disabled: busy, run: newThread },
+    { key: 'threads', label: 'Switch thread…', icon: <MessagesSquareIcon />, hint: '⌘P', run: () => setPalette('threads') },
+    { key: 'folder', label: 'Open folder…', icon: <FolderOpenIcon />, disabled: busy, run: pickFolder },
+    { key: 'none', label: 'New chat without project', icon: <MessageCircleIcon />, disabled: busy, run: () => chooseProject(undefined) },
+    { key: 'terminal', label: 'Toggle terminal', icon: <SquareTerminalIcon />, hint: '⌘J', run: () => toggle('terminal') },
+    { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘D', run: () => toggle('diff') },
+    { key: 'settings', label: 'Settings', icon: <SettingsIcon />, hint: '⌘,', run: window.api.openSettings },
+  ]
+  const threadRows: PaletteRow[] = threads.map((t) => ({
+    key: t.id,
+    label: t.title,
+    detail: [t.folder ?? 'No project', t.backend === 'pi' && 'Pi'].filter(Boolean).join(' · '),
+    icon: t.folder ? <FolderIcon /> : <MessageCircleIcon />,
+    disabled: busy,
+    run: () => openThread(t),
+    onRename: (title) => renameThread(t, title),
+    onDelete: () => deleteThread(t),
+  }))
+
   const turns = toTurns(items)
   const [background, setBackground] = useState(true)
   if (turns.length === 0 && !background) setBackground(true)
@@ -382,7 +429,7 @@ export function App() {
   )
 
   return (
-    <SidebarProvider style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
+    <>
       {background && (
         // Shows through the translucent sidebar; fades out once the first prompt is sent, then unmounts to free the GPU.
         <GradientASCII
@@ -405,21 +452,28 @@ export function App() {
           fontFamily='"JetBrainsMono Nerd Font", ui-monospace, monospace'
         />
       )}
-      <AppSidebar
-        threads={threads}
-        active={active}
-        busy={busy}
-        onNew={newThread}
-        onOpen={openThread}
-        onRename={renameThread}
-        onDelete={deleteThread}
-        onSettings={window.api.openSettings}
-        // The floating sidebar is inset 8px, so its edge sits 8px inside the container.
-        onResize={(x) => setSidebarWidth(Math.min(Math.max(x + 8, 200), 480))}
+      <Palette
+        open={palette === 'commands'}
+        onOpenChange={(open) => setPalette(open ? 'commands' : undefined)}
+        title="Commands"
+        placeholder="Run a command…"
+        sections={[['Commands', commands]]}
       />
-      <SidebarInset className="h-svh min-w-0 flex-row bg-transparent">
+      <Palette
+        open={palette === 'threads'}
+        onOpenChange={(open) => setPalette(open ? 'threads' : undefined)}
+        title="Threads"
+        placeholder="Search threads…"
+        sections={[['Threads', threadRows]]}
+      />
+      <div className="flex h-svh min-w-0 flex-row">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <TitleBar />
+          <TitleBar
+            title={(active.id && threads.find((t) => t.id === active.id)?.title) || 'New thread'}
+            folder={active.folder}
+            busy={busy}
+            onClick={() => setPalette('threads')}
+          />
 
           {turns.length === 0 ? (
             // Empty thread: heading and prompt sit together in the middle.
@@ -513,7 +567,7 @@ export function App() {
             onExit={() => setTerminal('off')}
           />
         )}
-      </SidebarInset>
-    </SidebarProvider>
+      </div>
+    </>
   )
 }
