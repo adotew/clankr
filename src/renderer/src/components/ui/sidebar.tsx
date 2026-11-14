@@ -99,12 +99,14 @@ function SidebarProvider({
         (event.metaKey || event.ctrlKey)
       ) {
         event.preventDefault()
+        event.stopPropagation()
         toggleSidebar()
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    // Capture phase: the terminal stops propagation of the keys it handles, which would swallow the shortcut.
+    window.addEventListener("keydown", handleKeyDown, true)
+    return () => window.removeEventListener("keydown", handleKeyDown, true)
   }, [toggleSidebar])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
