@@ -46,6 +46,55 @@ const duration = (x: number, y: number, sx: number, sy: number) => {
   return dot === 0 ? SIDE : DURATION
 }
 
+// Draws one frame of the trail from `from` to `to`, `t` ms in; returns false once it has finished.
+function drawTrail(ctx: CanvasRenderingContext2D, from: Rect, to: Rect, t: number) {
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  if (t >= DURATION) return false
+  const [fx, fy] = center(from)
+  const [tx, ty] = center(to)
+  const sx = Math.sign(tx - fx)
+  const sy = Math.sign(ty - fy)
+  ctx.beginPath()
+  for (const [x, y] of corners) {
+    const p = ease(Math.min(t / duration(x, y, sx, sy), 1))
+    const [ax, ay] = corner(from, x, y)
+    const [bx, by] = corner(to, x, y)
+    ctx.lineTo(ax + (bx - ax) * p, ay + (by - ay) * p)
+  }
+  ctx.fill()
+  // Keep the real cursor (and the glyph under it) visible.
+  ctx.clearRect(to.x, to.y, to.w, to.h)
+  return true
+}
+
+// Each canvas's last cursor, in canvas CSS pixels, and its colour.
+const cursors = new WeakMap<HTMLCanvasElement, { rect: Rect; color: string }>()
+
+// Sweeps the cursor from one terminal canvas to another, over a temporary window-sized overlay.
+export function sweepCursor(fromCanvas: HTMLCanvasElement, toCanvas: HTMLCanvasElement) {
+  const a = cursors.get(fromCanvas)
+  const b = cursors.get(toCanvas)
+  if (!a || !b || !fromCanvas.isConnected) return
+  const at = (canvas: HTMLCanvasElement, r: Rect) => {
+    const box = canvas.getBoundingClientRect()
+    return { ...r, x: box.left + r.x, y: box.top + r.y }
+  }
+  const from = at(fromCanvas, a.rect)
+  const to = at(toCanvas, b.rect)
+  const overlay = document.createElement('canvas')
+  overlay.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:50'
+  overlay.width = innerWidth * devicePixelRatio
+  overlay.height = innerHeight * devicePixelRatio
+  document.body.append(overlay)
+  const ctx = overlay.getContext('2d')
+  if (!ctx) return overlay.remove()
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+  ctx.fillStyle = b.color
+  const start = performance.now()
+  const draw = (now: number) => (drawTrail(ctx, from, to, now - start) ? requestAnimationFrame(draw) : overlay.remove())
+  requestAnimationFrame(draw)
+}
+
 export function cursorTrail(canvas: HTMLCanvasElement) {
   const overlay = document.createElement('canvas')
   overlay.style.cssText = 'position:absolute;pointer-events:none'
@@ -59,29 +108,13 @@ export function cursorTrail(canvas: HTMLCanvasElement) {
 
   const draw = (now: number) => {
     if (!ctx) return
-    ctx.clearRect(0, 0, overlay.width, overlay.height)
-    const t = now - start
-    if (t >= DURATION) return void (frame = 0)
-    const [fx, fy] = center(from)
-    const [tx, ty] = center(to)
-    const sx = Math.sign(tx - fx)
-    const sy = Math.sign(ty - fy)
-    ctx.beginPath()
-    for (const [x, y] of corners) {
-      const p = ease(Math.min(t / duration(x, y, sx, sy), 1))
-      const [ax, ay] = corner(from, x, y)
-      const [bx, by] = corner(to, x, y)
-      ctx.lineTo(ax + (bx - ax) * p, ay + (by - ay) * p)
-    }
-    ctx.fill()
-    // Keep the real cursor (and the glyph under it) visible.
-    ctx.clearRect(to.x, to.y, to.w, to.h)
-    frame = requestAnimationFrame(draw)
+    frame = drawTrail(ctx, from, to, now - start) ? requestAnimationFrame(draw) : 0
   }
 
   listeners.set(canvas, (cursor, color) => {
     const prev = last
     last = cursor
+    cursors.set(canvas, { rect: cursor, color })
     if (!ctx || !prev || (prev.x === cursor.x && prev.y === cursor.y)) return
     const [px, py] = center(prev)
     const [cx, cy] = center(cursor)

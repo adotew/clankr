@@ -4,7 +4,7 @@ import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
 
 import { cn } from '@/lib/utils'
 import { BrowserView } from './browser-view'
-import { cursorTrail } from './cursor-trail'
+import { cursorTrail, sweepCursor } from './cursor-trail'
 import { DiffView } from './diff-view'
 import { ResizeHandle, useStoredWidth } from './resize-handle'
 
@@ -91,6 +91,9 @@ const viewIcons = {
   browser: <GlobeIcon />,
 }
 
+// The last pane to show a cursor, so focusing another can sweep the cursor across to it.
+let lastFocused: HTMLCanvasElement | undefined
+
 // Unique across panel remounts, so a late exit from an old shell can't close a new pane.
 let nextPane = 0
 
@@ -136,7 +139,8 @@ function TerminalPane({
       const canvas = ref.current.querySelector('canvas')
       if (canvas) {
         cleanups.push(cursorTrail(canvas))
-        if (!focusedRef.current) idle.add(canvas)
+        if (focusedRef.current) lastFocused = canvas
+        else idle.add(canvas)
       }
 
       window.api.term.start(id, cwd, term.cols, term.rows)
@@ -167,8 +171,11 @@ function TerminalPane({
     const canvas = ref.current?.querySelector('canvas')
     if (!term || !canvas) return
     term.options.cursorBlink = focused
-    if (focused) idle.delete(canvas)
-    else idle.add(canvas)
+    if (focused) {
+      idle.delete(canvas)
+      if (lastFocused && lastFocused !== canvas) sweepCursor(lastFocused, canvas)
+      lastFocused = canvas
+    } else idle.add(canvas)
     repaint.add(canvas)
     if (focused) term.focus()
   }, [focused])
