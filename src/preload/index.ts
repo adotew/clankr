@@ -19,9 +19,7 @@ const api: Api = {
   settings: () => ipcRenderer.invoke('settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   piInfo: () => ipcRenderer.invoke('pi-info'),
-  piLogout: (provider) => ipcRenderer.invoke('pi-logout', provider),
   openSettings: () => ipcRenderer.send('open-settings'),
-  refresh: () => ipcRenderer.send('refresh'),
   onChanged: (cb) => listen('changed', cb),
   onEvent: (cb) => {
     const listener = (_: IpcRendererEvent, e: AgentEvent) => cb(e)
@@ -33,14 +31,12 @@ const api: Api = {
     input: (data) => ipcRenderer.send('term-input', data),
     resize: (cols, rows) => ipcRenderer.send('term-resize', cols, rows),
     kill: () => ipcRenderer.send('term-kill'),
-    run: (command) => ipcRenderer.send('term-run', command),
     onData: (cb) => {
       const listener = (_: IpcRendererEvent, data: string) => cb(data)
       ipcRenderer.on('term:data', listener)
       return () => ipcRenderer.removeListener('term:data', listener)
     },
     onExit: (cb) => listen('term:exit', cb),
-    onShow: (cb) => listen('term:show', cb),
   },
 }
 

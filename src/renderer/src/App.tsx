@@ -242,11 +242,12 @@ export function App() {
   useEffect(() => {
     // Capture phase so the shortcut still works while the terminal has focus.
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'KeyJ') {
-        e.preventDefault()
-        e.stopPropagation()
-        setTerminal((t) => (t === 'open' ? 'hidden' : 'open'))
-      }
+      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return
+      if (e.code === 'KeyJ') setTerminal((t) => (t === 'open' ? 'hidden' : 'open'))
+      else if (e.code === 'Comma') window.api.openSettings()
+      else return
+      e.preventDefault()
+      e.stopPropagation()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
@@ -270,7 +271,6 @@ export function App() {
       refreshModels()
       refreshThreads()
     })
-    const offShow = window.api.term.onShow(() => setTerminal('open'))
     const offEvent = window.api.onEvent((e) => {
       if (e.kind === 'ask') setAsks((xs) => [...xs, e])
       else if (e.kind === 'done') {
@@ -280,7 +280,6 @@ export function App() {
     })
     return () => {
       offChanged()
-      offShow()
       offEvent()
     }
   }, [])

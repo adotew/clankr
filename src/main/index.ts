@@ -15,18 +15,7 @@ import {
   type Query,
 } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent, Backend, Model, PiInfo, Settings, Thread } from '../shared'
-import {
-  modified,
-  piLogout,
-  piModels,
-  piProviders,
-  piStoredProviders,
-  PiRpc,
-  piVersion,
-  readPiSession,
-  shellEnv,
-  toEvents as piEvents,
-} from './pi'
+import { modified, piModels, PiRpc, piVersion, readPiSession, shellEnv, toEvents as piEvents } from './pi'
 
 // Marks sessions created by this app so other Claude Code sessions stay out of the sidebar.
 const TAG = 'clankr'
@@ -37,7 +26,9 @@ const scratchRoot = join(app.getPath('userData'), 'no-project')
 const isScratch = (dir: string) => dir.startsWith(scratchRoot + sep)
 
 const settingsFile = join(app.getPath('userData'), 'settings.json')
-let settings: Settings = { claude: true, pi: true, piPath: 'pi' }
+// The user's `pi`, found through their login shell's PATH.
+const piBin = 'pi'
+let settings: Settings = { claude: true, pi: true }
 try {
   settings = { ...settings, ...JSON.parse(readFileSync(settingsFile, 'utf8')) }
 } catch {
@@ -153,7 +144,7 @@ async function claudeModels(): Promise<Model[]> {
 
 const pi2Models = async (): Promise<Model[]> => [
   { value: 'pi:default', displayName: 'Pi default', backend: 'pi', group: 'Pi' },
-  ...(await piModels(settings.piPath)).map((m): Model => ({
+  ...(await piModels(piBin)).map((m): Model => ({
     value: `pi:${m.provider}/${m.id}`,
     displayName: m.name,
     backend: 'pi',
@@ -220,8 +211,6 @@ ipcMain.handle('save-settings', async (_, next: Settings) => {
   changed()
 })
 
-ipcMain.on('refresh', changed)
-
 ipcMain.on('open-settings', () => {
   if (settingsWin) return settingsWin.focus()
   settingsWin = new BrowserWindow({
@@ -239,17 +228,8 @@ ipcMain.on('open-settings', () => {
 })
 
 ipcMain.handle('pi-info', async (): Promise<PiInfo> => {
-  const [version, providers, stored] = await Promise.all([
-    piVersion(settings.piPath),
-    piProviders(settings.piPath),
-    piStoredProviders(),
-  ])
-  return { ok: version.ok, version: version.out, providers, stored }
-})
-
-ipcMain.handle('pi-logout', async (_, provider: string) => {
-  await piLogout(settings.piPath, provider)
-  changed()
+  const version = await piVersion(piBin)
+  return { ok: version.ok, version: version.out }
 })
 
 ipcMain.handle('pick-folder', async () => {
@@ -308,7 +288,7 @@ ipcMain.handle('send', async (_, prompt: string, model: string) => {
 async function sendPi(prompt: string, model: string, cwd: string) {
   const isNew = !sessionId
   if (!pi) {
-    const rpc = new PiRpc(settings.piPath, sessionId ? ['--session', sessionId] : [], cwd, await shellEnv)
+    const rpc = new PiRpc(piBin, sessionId ? ['--session', sessionId] : [], cwd, await shellEnv)
     rpc.onRecord = (r) =>
       piEvents(r).forEach((e) => {
         if (e.kind === 'ask')
@@ -402,8 +382,6 @@ ipcMain.on('reply', (_, id: string, answer: boolean | string | undefined) => {
 
 // One shell at a time; opening a terminal in a new folder replaces the old one.
 let shell: IPty | undefined
-// A command waiting for the next shell to start.
-let queued: string | undefined
 
 ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number) => {
   shell?.kill()
@@ -415,8 +393,6 @@ ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
   })
   shell = pty
-  if (queued) pty.write(queued + '\r')
-  queued = undefined
   pty.onData((data) => win.webContents.send('term:data', data))
   pty.onExit(() => {
     if (shell !== pty) return
@@ -425,12 +401,6 @@ ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number
   })
 })
 ipcMain.on('term-input', (_, data: string) => shell?.write(data))
-ipcMain.on('term-run', (_, command: string) => {
-  if (shell) shell.write(command + '\r')
-  else queued = command
-  win.webContents.send('term:show')
-  win.focus()
-})
 ipcMain.on('term-resize', (_, cols: number, rows: number) => shell?.resize(cols, rows))
 ipcMain.on('term-kill', () => {
   shell?.kill()

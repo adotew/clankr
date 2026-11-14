@@ -1,7 +1,6 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
 import type { AgentEvent } from '../shared'
 
 // Apps started from Finder miss the login shell's environment (PATH, PI_CODING_AGENT_DIR, …),
@@ -42,23 +41,6 @@ const run = async (bin: string, args: string[]) =>
   })
 
 export const piVersion = (bin: string) => run(bin, ['--version'])
-export const piLogout = (bin: string, provider: string) => run(bin, ['auth', 'logout', provider])
-
-// shortcut: pi has no "list providers" command, so read the list from its unknown-provider error; replace if one is added.
-export async function piProviders(bin: string): Promise<string[]> {
-  const { out } = await run(bin, ['auth', 'login', '__clankr_list__'])
-  return out.match(/Providers: (.*)/)?.[1].split(', ') ?? []
-}
-
-// Providers with credentials saved by `pi auth login` (only the names, never the secrets).
-export async function piStoredProviders(): Promise<string[]> {
-  const dir = (await shellEnv).PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent')
-  try {
-    return Object.keys(JSON.parse(await readFile(join(dir, 'auth.json'), 'utf8')))
-  } catch {
-    return []
-  }
-}
 
 type Content = { type: string; text?: string }
 type PiMessage = {

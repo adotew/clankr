@@ -13,9 +13,8 @@ export type AgentEvent =
 export type Thread = { id: string; title: string; cwd: string; folder?: string; backend: Backend; updated: number }
 // `value` is prefixed with its backend, e.g. "claude:default" or "pi:anthropic/claude-opus-5-5".
 export type Model = { value: string; displayName: string; backend: Backend; group: string }
-export type Settings = { claude: boolean; pi: boolean; piPath: string }
-// `providers` can be logged in with `pi auth login`; `stored` already have saved credentials.
-export type PiInfo = { ok: boolean; version: string; providers: string[]; stored: string[] }
+export type Settings = { claude: boolean; pi: boolean }
+export type PiInfo = { ok: boolean; version: string }
 
 export type Api = {
   models: () => Promise<Model[]>
@@ -29,10 +28,7 @@ export type Api = {
   settings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   piInfo: () => Promise<PiInfo>
-  piLogout: (provider: string) => Promise<void>
   openSettings: () => void
-  // Drops cached models (e.g. after `pi auth login`) and notifies every window through onChanged.
-  refresh: () => void
   onChanged: (cb: () => void) => () => void
   onEvent: (cb: (e: AgentEvent) => void) => () => void
   term: {
@@ -40,12 +36,8 @@ export type Api = {
     input: (data: string) => void
     resize: (cols: number, rows: number) => void
     kill: () => void
-    // Types a command into the shell, or into the next one started if none is running.
-    run: (command: string) => void
     onData: (cb: (data: string) => void) => () => void
     onExit: (cb: () => void) => () => void
-    // Fires when the terminal panel should open, e.g. after `run` from the settings window.
-    onShow: (cb: () => void) => () => void
   }
 }
 
