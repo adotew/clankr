@@ -56,6 +56,18 @@ const readPiIndex = async (): Promise<PiThread[]> => {
 }
 
 let win: BrowserWindow
+let settingsWin: BrowserWindow | undefined
+
+const load = (w: BrowserWindow, hash = '') => {
+  if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL + hash)
+  else w.loadFile(join(import.meta.dirname, '../renderer/index.html'), { hash })
+}
+
+// Settings or Pi logins changed: drop cached models and tell every window to reload.
+const changed = () => {
+  models = undefined
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('changed')
+}
 let cwd: string | undefined
 // The active thread: a Claude session ID or a Pi session file, depending on `backend`.
 let backend: Backend = 'claude'
@@ -203,9 +215,27 @@ ipcMain.handle('settings', () => settings)
 
 ipcMain.handle('save-settings', async (_, next: Settings) => {
   settings = next
-  models = undefined
   if (!busy) closePi()
   await writeFile(settingsFile, JSON.stringify(settings, null, 2))
+  changed()
+})
+
+ipcMain.on('refresh', changed)
+
+ipcMain.on('open-settings', () => {
+  if (settingsWin) return settingsWin.focus()
+  settingsWin = new BrowserWindow({
+    width: 520,
+    height: 640,
+    minWidth: 420,
+    minHeight: 400,
+    parent: win,
+    title: 'Settings',
+    titleBarStyle: 'hiddenInset',
+    webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
+  })
+  settingsWin.on('closed', () => (settingsWin = undefined))
+  load(settingsWin, '#settings')
 })
 
 ipcMain.handle('pi-info', async (): Promise<PiInfo> => {
@@ -219,7 +249,7 @@ ipcMain.handle('pi-info', async (): Promise<PiInfo> => {
 
 ipcMain.handle('pi-logout', async (_, provider: string) => {
   await piLogout(settings.piPath, provider)
-  models = undefined
+  changed()
 })
 
 ipcMain.handle('pick-folder', async () => {
@@ -395,7 +425,12 @@ ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number
   })
 })
 ipcMain.on('term-input', (_, data: string) => shell?.write(data))
-ipcMain.on('term-run', (_, command: string) => (shell ? shell.write(command + '\r') : (queued = command)))
+ipcMain.on('term-run', (_, command: string) => {
+  if (shell) shell.write(command + '\r')
+  else queued = command
+  win.webContents.send('term:show')
+  win.focus()
+})
 ipcMain.on('term-resize', (_, cols: number, rows: number) => shell?.resize(cols, rows))
 ipcMain.on('term-kill', () => {
   shell?.kill()
@@ -414,8 +449,7 @@ app.whenReady().then(() => {
   })
   win.on('enter-full-screen', () => win.webContents.send('fullscreen', true))
   win.on('leave-full-screen', () => win.webContents.send('fullscreen', false))
-  if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
+  load(win)
 })
 
 app.on('window-all-closed', () => {

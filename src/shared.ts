@@ -30,6 +30,10 @@ export type Api = {
   saveSettings: (settings: Settings) => Promise<void>
   piInfo: () => Promise<PiInfo>
   piLogout: (provider: string) => Promise<void>
+  openSettings: () => void
+  // Drops cached models (e.g. after `pi auth login`) and notifies every window through onChanged.
+  refresh: () => void
+  onChanged: (cb: () => void) => () => void
   onEvent: (cb: (e: AgentEvent) => void) => () => void
   term: {
     start: (cwd: string | undefined, cols: number, rows: number) => void
@@ -40,6 +44,8 @@ export type Api = {
     run: (command: string) => void
     onData: (cb: (data: string) => void) => () => void
     onExit: (cb: () => void) => () => void
+    // Fires when the terminal panel should open, e.g. after `run` from the settings window.
+    onShow: (cb: () => void) => () => void
   }
 }
 

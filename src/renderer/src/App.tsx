@@ -14,7 +14,6 @@ import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
-import { SettingsSheet } from '@/components/settings'
 import { TerminalPanel } from '@/components/terminal-panel'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
@@ -236,7 +235,6 @@ export function App() {
   })
   const [items, setItems] = useState<Item[]>([])
   const [asks, setAsks] = useState<Ask[]>([])
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   // 'hidden' keeps the shell running while the panel is closed.
   const [terminal, setTerminal] = useState<'off' | 'open' | 'hidden'>('off')
@@ -268,13 +266,23 @@ export function App() {
   useEffect(() => {
     refreshThreads()
     refreshModels()
-    return window.api.onEvent((e) => {
+    const offChanged = window.api.onChanged(() => {
+      refreshModels()
+      refreshThreads()
+    })
+    const offShow = window.api.term.onShow(() => setTerminal('open'))
+    const offEvent = window.api.onEvent((e) => {
       if (e.kind === 'ask') setAsks((xs) => [...xs, e])
       else if (e.kind === 'done') {
         setAsks([])
         setBusy(false)
       } else setItems((xs) => applyEvent(xs, e))
     })
+    return () => {
+      offChanged()
+      offShow()
+      offEvent()
+    }
   }, [])
 
   // Starts a fresh thread in a project folder, or in "No project" when `cwd` is undefined.
@@ -314,12 +322,6 @@ export function App() {
   const reply = (id: string, answer: Answer) => {
     window.api.reply(id, answer)
     setAsks((xs) => xs.filter((x) => x.id !== id))
-  }
-
-  // Runs a command (e.g. `pi auth login`) in the terminal panel, opening it if needed.
-  const runInTerminal = (command: string) => {
-    window.api.term.run(command)
-    setTerminal('open')
   }
 
   const turns = toTurns(items)
@@ -369,20 +371,7 @@ export function App() {
         busy={busy}
         onNew={newThread}
         onOpen={openThread}
-        onSettings={() => setSettingsOpen(true)}
-      />
-      <SettingsSheet
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        models={models}
-        onRunInTerminal={(command) => {
-          setSettingsOpen(false)
-          runInTerminal(command)
-        }}
-        onChange={() => {
-          refreshModels()
-          refreshThreads()
-        }}
+        onSettings={window.api.openSettings}
       />
       <SidebarInset className="h-svh min-w-0 flex-row bg-transparent">
         <div className="relative flex min-w-0 flex-1 flex-col">

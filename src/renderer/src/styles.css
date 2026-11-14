@@ -139,8 +139,3 @@
   }
 }
 
-/* Window drag regions swallow clicks even under portaled popups (no-drag on the popup doesn't help), so turn them off
-   while a sheet is open; otherwise its close button can't be clicked. */
-body:has([data-slot='sheet-content']) * {
-  -webkit-app-region: no-drag;
-}

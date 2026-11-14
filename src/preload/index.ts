@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { AgentEvent, Api } from '../shared'
 
+const listen = (channel: string, cb: () => void) => {
+  const listener = () => cb()
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
 const api: Api = {
   models: () => ipcRenderer.invoke('models'),
   threads: () => ipcRenderer.invoke('threads'),
@@ -14,6 +20,9 @@ const api: Api = {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   piInfo: () => ipcRenderer.invoke('pi-info'),
   piLogout: (provider) => ipcRenderer.invoke('pi-logout', provider),
+  openSettings: () => ipcRenderer.send('open-settings'),
+  refresh: () => ipcRenderer.send('refresh'),
+  onChanged: (cb) => listen('changed', cb),
   onEvent: (cb) => {
     const listener = (_: IpcRendererEvent, e: AgentEvent) => cb(e)
     ipcRenderer.on('agent:event', listener)
@@ -30,11 +39,8 @@ const api: Api = {
       ipcRenderer.on('term:data', listener)
       return () => ipcRenderer.removeListener('term:data', listener)
     },
-    onExit: (cb) => {
-      const listener = () => cb()
-      ipcRenderer.on('term:exit', listener)
-      return () => ipcRenderer.removeListener('term:exit', listener)
-    },
+    onExit: (cb) => listen('term:exit', cb),
+    onShow: (cb) => listen('term:show', cb),
   },
 }
 

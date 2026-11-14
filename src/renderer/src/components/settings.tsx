@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import type { Model, PiInfo, Settings } from '../../../shared'
 
 function Toggle(props: { title: string; description: string; checked: boolean; onChange: (on: boolean) => void }) {
@@ -25,41 +24,38 @@ function Toggle(props: { title: string; description: string; checked: boolean; o
   )
 }
 
-export function SettingsSheet(props: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  models: Model[]
-  onRunInTerminal: (command: string) => void
-  onChange: () => void
-}) {
+// Rendered in its own window (loaded with #settings).
+export function SettingsPage() {
   const [settings, setSettings] = useState<Settings>()
   const [piPath, setPiPath] = useState('')
   const [info, setInfo] = useState<PiInfo>()
+  const [models, setModels] = useState<Model[]>([])
 
   const loadInfo = () => {
     setInfo(undefined)
     window.api.piInfo().then(setInfo)
   }
+  const loadModels = () => window.api.models().then(setModels, () => setModels([]))
 
   useEffect(() => {
-    if (!props.open) return
     window.api.settings().then((s) => {
       setSettings(s)
       setPiPath(s.piPath)
     })
     loadInfo()
-  }, [props.open])
+    loadModels()
+    return window.api.onChanged(loadModels)
+  }, [])
 
   const save = async (next: Settings) => {
     setSettings(next)
     await window.api.saveSettings(next)
-    props.onChange()
     if (next.piPath !== settings?.piPath) loadInfo()
   }
 
   // Providers with Pi models: logged in, set through environment variables, or added by extensions.
   const connected = Object.entries(
-    props.models.reduce<Record<string, number>>((acc, m) => {
+    models.reduce<Record<string, number>>((acc, m) => {
       const provider = m.value.match(/^pi:([^/]+)\//)?.[1]
       if (provider) acc[provider] = (acc[provider] ?? 0) + 1
       return acc
@@ -68,14 +64,13 @@ export function SettingsSheet(props: {
   const unconnected = info?.providers.filter((p) => !connected.some(([c]) => c === p)) ?? []
 
   return (
-    <Sheet open={props.open} onOpenChange={props.onOpenChange}>
-      <SheetContent className="w-96 gap-0 overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>Settings</SheetTitle>
-          <SheetDescription>Agents and the model providers they use.</SheetDescription>
-        </SheetHeader>
+    <div className="flex h-svh flex-col">
+      <header className="flex h-12 shrink-0 items-center justify-center text-sm font-medium [-webkit-app-region:drag]">
+        Settings
+      </header>
+      <main className="flex-1 overflow-y-auto">
         {settings && (
-          <div className="flex flex-col gap-6 px-4 pb-6">
+          <div className="mx-auto flex max-w-lg flex-col gap-6 px-6 pt-2 pb-6">
             <section className="flex flex-col gap-4">
               <h3 className="text-xs font-medium text-muted-foreground">Agents</h3>
               <Toggle
@@ -123,7 +118,7 @@ export function SettingsSheet(props: {
                     variant="ghost"
                     aria-label="Refresh"
                     onClick={() => {
-                      props.onChange()
+                      window.api.refresh()
                       loadInfo()
                     }}
                   >
@@ -147,7 +142,6 @@ export function SettingsSheet(props: {
                           variant="ghost"
                           onClick={async () => {
                             await window.api.piLogout(provider)
-                            props.onChange()
                             loadInfo()
                           }}
                         >
@@ -168,10 +162,7 @@ export function SettingsSheet(props: {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="max-h-72 min-w-56">
                     {unconnected.map((provider) => (
-                      <DropdownMenuItem
-                        key={provider}
-                        onClick={() => props.onRunInTerminal(`pi auth login ${provider}`)}
-                      >
+                      <DropdownMenuItem key={provider} onClick={() => window.api.term.run(`pi auth login ${provider}`)}>
                         {provider}
                       </DropdownMenuItem>
                     ))}
@@ -184,7 +175,7 @@ export function SettingsSheet(props: {
             )}
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </main>
+    </div>
   )
 }
