@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { spawn, type IPty } from '@lydell/node-pty'
 import { randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, sep } from 'node:path'
 import {
@@ -13,7 +14,19 @@ import {
   type PermissionResult,
   type Query,
 } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentEvent, Model, Thread } from '../shared'
+import type { AgentEvent, Backend, Model, PiInfo, Settings, Thread } from '../shared'
+import {
+  modified,
+  piLogout,
+  piModels,
+  piProviders,
+  piStoredProviders,
+  PiRpc,
+  piVersion,
+  readPiSession,
+  shellEnv,
+  toEvents as piEvents,
+} from './pi'
 
 // Marks sessions created by this app so other Claude Code sessions stay out of the sidebar.
 const TAG = 'clankr'
@@ -23,12 +36,43 @@ const TAG = 'clankr'
 const scratchRoot = join(app.getPath('userData'), 'no-project')
 const isScratch = (dir: string) => dir.startsWith(scratchRoot + sep)
 
+const settingsFile = join(app.getPath('userData'), 'settings.json')
+let settings: Settings = { claude: true, pi: true, piPath: 'pi' }
+try {
+  settings = { ...settings, ...JSON.parse(readFileSync(settingsFile, 'utf8')) }
+} catch {
+  // First launch, or an unreadable file: keep the defaults.
+}
+
+// Pi sessions this app started, so the user's other Pi sessions stay out of the sidebar.
+type PiThread = { file: string; cwd: string; title: string }
+const piIndex = join(app.getPath('userData'), 'pi-sessions.json')
+const readPiIndex = async (): Promise<PiThread[]> => {
+  try {
+    return JSON.parse(await readFile(piIndex, 'utf8'))
+  } catch {
+    return []
+  }
+}
+
 let win: BrowserWindow
 let cwd: string | undefined
+// The active thread: a Claude session ID or a Pi session file, depending on `backend`.
+let backend: Backend = 'claude'
 let sessionId: string | undefined
+let busy = false
 let current: Query | undefined
+// Stays alive between prompts of the active Pi thread.
+let pi: PiRpc | undefined
+// Ends the Pi run in progress, with an error if pi died.
+let settle: ((err?: Error) => void) | undefined
 let models: Promise<Model[]> | undefined
-const pending = new Map<string, (r: PermissionResult) => void>()
+const pending = new Map<string, (answer: boolean | string | undefined) => void>()
+
+const closePi = () => {
+  pi?.close()
+  pi = undefined
+}
 
 const emit = (e: AgentEvent) => win.webContents.send('agent:event', e)
 
@@ -61,16 +105,20 @@ function toEvents(type: string, message: unknown, history: boolean): AgentEvent[
 const canUseTool: CanUseTool = (name, input, { signal }) =>
   new Promise((resolve) => {
     const id = randomUUID()
-    pending.set(id, resolve)
+    pending.set(id, (allow) =>
+      resolve(allow === true ? { behavior: 'allow' } : { behavior: 'deny', message: 'User denied this action' }),
+    )
     signal.addEventListener('abort', () => {
       pending.delete(id)
       resolve({ behavior: 'deny', message: 'Aborted' })
     })
-    emit({ kind: 'permission', id, name, input })
+    const { command, file_path, description } = input
+    const detail = [command, file_path, description].find((v) => typeof v === 'string') as string | undefined
+    emit({ kind: 'ask', id, title: `Allow ${name}?`, detail })
   })
 
 // supportedModels() needs a live CLI process; open one with a prompt that never arrives, then close it.
-async function loadModels(): Promise<Model[]> {
+async function claudeModels(): Promise<Model[]> {
   let release = () => {}
   const idle = new Promise<void>((r) => (release = r))
   const q = query({
@@ -79,11 +127,36 @@ async function loadModels(): Promise<Model[]> {
     })(),
   })
   try {
-    return (await q.supportedModels()).map(({ value, displayName }) => ({ value, displayName }))
+    return (await q.supportedModels()).map(({ value, displayName }) => ({
+      value: `claude:${value}`,
+      displayName,
+      backend: 'claude',
+      group: 'Claude',
+    }))
   } finally {
     q.close()
     release()
   }
+}
+
+const pi2Models = async (): Promise<Model[]> => [
+  { value: 'pi:default', displayName: 'Pi default', backend: 'pi', group: 'Pi' },
+  ...(await piModels(settings.piPath)).map((m): Model => ({
+    value: `pi:${m.provider}/${m.id}`,
+    displayName: m.name,
+    backend: 'pi',
+    group: `Pi · ${m.provider}`,
+  })),
+]
+
+// One backend failing (e.g. pi not installed) still leaves the other's models; fail only if none load.
+async function loadModels(): Promise<Model[]> {
+  const loaders = [settings.claude && claudeModels(), settings.pi && pi2Models()].filter((l) => l !== false)
+  const results = await Promise.allSettled(loaders)
+  const loaded = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+  const failed = results.find((r) => r.status === 'rejected')
+  if (failed && !loaded.length) throw failed.reason
+  return loaded
 }
 
 ipcMain.handle('models', () => {
@@ -94,16 +167,60 @@ ipcMain.handle('models', () => {
   return models
 })
 
-ipcMain.handle('threads', async (): Promise<Thread[]> =>
+const folderOf = (dir: string) => (isScratch(dir) ? undefined : basename(dir))
+
+const claudeThreads = async (): Promise<Thread[]> =>
   (await listSessions())
     .filter((s) => s.tag === TAG && s.cwd)
     .map((s) => ({
       id: s.sessionId,
       title: s.summary,
       cwd: s.cwd!,
-      folder: isScratch(s.cwd!) ? undefined : basename(s.cwd!),
-    })),
-)
+      folder: folderOf(s.cwd!),
+      backend: 'claude',
+      updated: s.lastModified,
+    }))
+
+// Threads whose session file was deleted (e.g. from pi's /resume) drop out.
+const piThreads = async (): Promise<Thread[]> =>
+  (
+    await Promise.all(
+      (await readPiIndex()).map(async (t): Promise<Thread[]> => {
+        const updated = await modified(t.file)
+        return updated
+          ? [{ id: t.file, title: t.title, cwd: t.cwd, folder: folderOf(t.cwd), backend: 'pi', updated }]
+          : []
+      }),
+    )
+  ).flat()
+
+ipcMain.handle('threads', async (): Promise<Thread[]> => {
+  const lists = await Promise.all([settings.claude ? claudeThreads() : [], settings.pi ? piThreads() : []])
+  return lists.flat().sort((a, b) => b.updated - a.updated)
+})
+
+ipcMain.handle('settings', () => settings)
+
+ipcMain.handle('save-settings', async (_, next: Settings) => {
+  settings = next
+  models = undefined
+  if (!busy) closePi()
+  await writeFile(settingsFile, JSON.stringify(settings, null, 2))
+})
+
+ipcMain.handle('pi-info', async (): Promise<PiInfo> => {
+  const [version, providers, stored] = await Promise.all([
+    piVersion(settings.piPath),
+    piProviders(settings.piPath),
+    piStoredProviders(),
+  ])
+  return { ok: version.ok, version: version.out, providers, stored }
+})
+
+ipcMain.handle('pi-logout', async (_, provider: string) => {
+  await piLogout(settings.piPath, provider)
+  models = undefined
+})
 
 ipcMain.handle('pick-folder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
@@ -112,26 +229,106 @@ ipcMain.handle('pick-folder', async () => {
 
 // Without a project folder (or from a "No project" thread), the next send creates a fresh scratch folder.
 ipcMain.handle('new-thread', (_, dir: string | undefined) => {
-  if (current) return
+  if (busy) return
   cwd = dir && !isScratch(dir) ? dir : undefined
   sessionId = undefined
+  closePi()
 })
 
 ipcMain.handle('open-thread', async (_, thread: Thread): Promise<AgentEvent[]> => {
-  if (current) return []
+  if (busy) return []
+  closePi()
   cwd = thread.cwd
   sessionId = thread.id
+  backend = thread.backend
+  if (thread.backend === 'pi') return readPiSession(thread.id)
   const messages = await getSessionMessages(thread.id, { dir: thread.cwd })
   return messages.filter((m) => !m.parent_tool_use_id).flatMap((m) => toEvents(m.type, m.message, true))
 })
 
 ipcMain.handle('send', async (_, prompt: string, model: string) => {
-  if (current) return
-  const isNew = !sessionId
+  if (busy) return
+  const [next, id] = model.split(/:(.*)/) as [Backend, string]
+  // A thread keeps the backend it started with; their sessions aren't interchangeable.
+  if (sessionId && next !== backend) {
+    emit({
+      kind: 'error',
+      text: `This thread runs on ${backend === 'pi' ? 'Pi' : 'Claude'}; start a new thread to switch.`,
+    })
+    emit({ kind: 'done' })
+    return
+  }
+  backend = next
+  busy = true
   if (!cwd) {
     cwd = join(scratchRoot, randomUUID())
     await mkdir(cwd, { recursive: true })
   }
+  try {
+    await (backend === 'pi' ? sendPi(prompt, id, cwd) : sendClaude(prompt, id, cwd))
+  } catch (err) {
+    emit({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
+  } finally {
+    busy = false
+    emit({ kind: 'done' })
+  }
+  return { sessionId, cwd, backend }
+})
+
+async function sendPi(prompt: string, model: string, cwd: string) {
+  const isNew = !sessionId
+  if (!pi) {
+    const rpc = new PiRpc(settings.piPath, sessionId ? ['--session', sessionId] : [], cwd, await shellEnv)
+    rpc.onRecord = (r) =>
+      piEvents(r).forEach((e) => {
+        if (e.kind === 'ask')
+          pending.set(e.id, (answer) =>
+            rpc.send({
+              type: 'extension_ui_response',
+              id: e.id,
+              ...(answer === undefined
+                ? { cancelled: true }
+                : typeof answer === 'boolean'
+                  ? { confirmed: answer }
+                  : { value: answer }),
+            }),
+          )
+        emit(e)
+      })
+    rpc.onSettled = () => settle?.()
+    rpc.onExit = (reason) => {
+      if (pi === rpc) pi = undefined
+      settle?.(new Error(reason))
+    }
+    pi = rpc
+  }
+  const rpc = pi
+  if (model !== 'default') {
+    const [provider, modelId] = model.split(/\/(.*)/)
+    await rpc.call({ type: 'set_model', provider, modelId })
+  }
+  // Listen before prompting: a fast run can settle before the prompt's response arrives.
+  const settled = new Promise<void>((resolve, reject) => {
+    settle = (err) => (err ? reject(err) : resolve())
+  })
+  settled.catch(() => {})
+  try {
+    const { disposition } = await rpc.call<{ disposition: string }>({ type: 'prompt', message: prompt })
+    if (disposition !== 'handled') await settled
+  } finally {
+    settle = undefined
+  }
+  const state = await rpc.call<{ sessionFile?: string }>({ type: 'get_state' })
+  sessionId = state.sessionFile
+  if (isNew && sessionId)
+    await writeFile(
+      piIndex,
+      JSON.stringify([...(await readPiIndex()), { file: sessionId, cwd, title: prompt.slice(0, 120) }]),
+    )
+}
+
+async function sendClaude(prompt: string, model: string, cwd: string) {
+  const isNew = !sessionId
   current = query({
     prompt,
     options: {
@@ -159,26 +356,24 @@ ipcMain.handle('send', async (_, prompt: string, model: string) => {
       else if (msg.type === 'result' && msg.subtype !== 'success') emit({ kind: 'error', text: msg.subtype })
     }
     if (isNew && sessionId) await tagSession(sessionId, TAG, { dir: cwd })
-  } catch (err) {
-    emit({ kind: 'error', text: String(err) })
   } finally {
     current = undefined
-    emit({ kind: 'done' })
   }
-  return { sessionId, cwd }
-})
+}
 
 ipcMain.handle('stop', async () => {
-  await current?.interrupt()
+  await (backend === 'pi' ? pi?.call({ type: 'abort' }) : current?.interrupt())
 })
 
-ipcMain.on('permission', (_, id: string, allow: boolean) => {
-  pending.get(id)?.(allow ? { behavior: 'allow' } : { behavior: 'deny', message: 'User denied this action' })
+ipcMain.on('reply', (_, id: string, answer: boolean | string | undefined) => {
+  pending.get(id)?.(answer)
   pending.delete(id)
 })
 
 // One shell at a time; opening a terminal in a new folder replaces the old one.
 let shell: IPty | undefined
+// A command waiting for the next shell to start.
+let queued: string | undefined
 
 ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number) => {
   shell?.kill()
@@ -190,6 +385,8 @@ ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
   })
   shell = pty
+  if (queued) pty.write(queued + '\r')
+  queued = undefined
   pty.onData((data) => win.webContents.send('term:data', data))
   pty.onExit(() => {
     if (shell !== pty) return
@@ -198,6 +395,7 @@ ipcMain.on('term-start', (_, cwd: string | undefined, cols: number, rows: number
   })
 })
 ipcMain.on('term-input', (_, data: string) => shell?.write(data))
+ipcMain.on('term-run', (_, command: string) => (shell ? shell.write(command + '\r') : (queued = command)))
 ipcMain.on('term-resize', (_, cols: number, rows: number) => shell?.resize(cols, rows))
 ipcMain.on('term-kill', () => {
   shell?.kill()
@@ -222,5 +420,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   shell?.kill()
+  closePi()
   app.quit()
 })

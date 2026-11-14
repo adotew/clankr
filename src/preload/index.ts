@@ -9,7 +9,11 @@ const api: Api = {
   openThread: (thread) => ipcRenderer.invoke('open-thread', thread),
   send: (prompt, model) => ipcRenderer.invoke('send', prompt, model),
   stop: () => ipcRenderer.invoke('stop'),
-  reply: (id, allow) => ipcRenderer.send('permission', id, allow),
+  reply: (id, answer) => ipcRenderer.send('reply', id, answer),
+  settings: () => ipcRenderer.invoke('settings'),
+  saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  piInfo: () => ipcRenderer.invoke('pi-info'),
+  piLogout: (provider) => ipcRenderer.invoke('pi-logout', provider),
   onEvent: (cb) => {
     const listener = (_: IpcRendererEvent, e: AgentEvent) => cb(e)
     ipcRenderer.on('agent:event', listener)
@@ -20,6 +24,7 @@ const api: Api = {
     input: (data) => ipcRenderer.send('term-input', data),
     resize: (cols, rows) => ipcRenderer.send('term-resize', cols, rows),
     kill: () => ipcRenderer.send('term-kill'),
+    run: (command) => ipcRenderer.send('term-run', command),
     onData: (cb) => {
       const listener = (_: IpcRendererEvent, data: string) => cb(data)
       ipcRenderer.on('term:data', listener)

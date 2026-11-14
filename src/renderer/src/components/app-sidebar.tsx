@@ -1,8 +1,9 @@
-import { FolderIcon, LoaderCircleIcon, MessageCircleIcon, PlusIcon } from 'lucide-react'
+import { FolderIcon, LoaderCircleIcon, MessageCircleIcon, PlusIcon, SettingsIcon } from 'lucide-react'
 
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -12,10 +13,10 @@ import {
   SidebarMenuItem,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
-import type { Thread } from '../../../shared'
+import type { Backend, Thread } from '../../../shared'
 
 // `cwd` is unset until a "No project" thread gets its scratch folder; `folder` is unset for "No project".
-export type Active = { id?: string; cwd?: string; folder?: string }
+export type Active = { id?: string; cwd?: string; folder?: string; backend?: Backend }
 
 export const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
 
@@ -23,6 +24,7 @@ function ThreadButton(props: {
   title: string
   cwd?: string
   folder?: string
+  backend?: Backend
   active: boolean
   running: boolean
   disabled?: boolean
@@ -48,6 +50,7 @@ function ThreadButton(props: {
             <MessageCircleIcon className="size-3 shrink-0" />
           )}
           <span className="truncate">{props.folder ?? 'No project'}</span>
+          {props.backend === 'pi' && <span className="ml-auto shrink-0">Pi</span>}
         </span>
       </SidebarMenuButton>
     </SidebarMenuItem>
@@ -60,6 +63,7 @@ export function AppSidebar(props: {
   busy: boolean
   onNew: () => void
   onOpen: (thread: Thread) => void
+  onSettings: () => void
 }) {
   const { threads, active, busy } = props
 
@@ -97,6 +101,7 @@ export function AppSidebar(props: {
                   title={t.title}
                   cwd={t.cwd}
                   folder={t.folder}
+                  backend={t.backend}
                   active={t.id === active.id}
                   running={busy && t.id === active.id}
                   disabled={busy}
@@ -110,6 +115,15 @@ export function AppSidebar(props: {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={props.onSettings} aria-label="Settings" title="Settings" className="w-fit">
+              <SettingsIcon />
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
     </Sidebar>
   )
 }

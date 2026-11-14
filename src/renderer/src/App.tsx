@@ -14,10 +14,12 @@ import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
+import { SettingsSheet } from '@/components/settings'
 import { TerminalPanel } from '@/components/terminal-panel'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { Message, MessageContent, MessageFooter } from '@/components/ui/message'
@@ -31,10 +33,13 @@ import {
 } from '@/components/ui/message-scroller'
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from '@/components/ui/sidebar'
 import { Trace } from '@/components/ui/trace'
-import type { AgentEvent, Model, Thread } from '../../shared'
+import type { AgentEvent, Backend, Model, Thread } from '../../shared'
 
 type Item = { kind: 'user' | 'assistant' | 'error'; text: string } | ToolItem
-type Permission = Extract<AgentEvent, { kind: 'permission' }>
+type Ask = Extract<AgentEvent, { kind: 'ask' }>
+type Answer = boolean | string | undefined
+
+const backendOf = (model: string) => model.split(':')[0] as Backend
 // One user prompt and everything the agent did in reply.
 type Turn = { prompt?: string; replies: Item[] }
 
@@ -156,25 +161,64 @@ function TitleBar() {
   )
 }
 
-function Confirmation({ permission, onReply }: { permission: Permission; onReply: (allow: boolean) => void }) {
-  const { command, file_path, description } = permission.input
-  const detail = [command, file_path, description].find((v) => typeof v === 'string') as string | undefined
+// Claude permission requests (yes/no) and Pi extension dialogs (yes/no, a choice, or free text).
+function AskCard({ ask, onReply }: { ask: Ask; onReply: (answer: Answer) => void }) {
+  const [text, setText] = useState('')
   return (
-    <Item variant="outline" size="sm">
+    <Item variant="outline" size="sm" className="flex-wrap">
       <ItemMedia variant="icon">
         <ShieldQuestionIcon />
       </ItemMedia>
       <ItemContent className="min-w-0">
-        <ItemTitle>Allow {permission.name}?</ItemTitle>
-        {detail && <ItemDescription className="truncate font-mono text-xs">{detail}</ItemDescription>}
+        <ItemTitle>{ask.title}</ItemTitle>
+        {ask.detail && !ask.input && (
+          <ItemDescription className="truncate font-mono text-xs">{ask.detail}</ItemDescription>
+        )}
       </ItemContent>
-      <ItemActions>
-        <Button size="sm" variant="outline" onClick={() => onReply(false)}>
-          Deny
-        </Button>
-        <Button size="sm" onClick={() => onReply(true)}>
-          Allow
-        </Button>
+      <ItemActions className="flex-wrap">
+        {ask.options ? (
+          <>
+            {ask.options.map((option) => (
+              <Button key={option} size="sm" variant="outline" onClick={() => onReply(option)}>
+                {option}
+              </Button>
+            ))}
+            <Button size="sm" variant="ghost" onClick={() => onReply(undefined)}>
+              Cancel
+            </Button>
+          </>
+        ) : ask.input ? (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              onReply(text)
+            }}
+          >
+            <Input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={ask.detail}
+              className="h-8 w-56"
+              autoFocus
+            />
+            <Button type="button" size="sm" variant="outline" onClick={() => onReply(undefined)}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm">
+              Send
+            </Button>
+          </form>
+        ) : (
+          <>
+            <Button size="sm" variant="outline" onClick={() => onReply(false)}>
+              Deny
+            </Button>
+            <Button size="sm" onClick={() => onReply(true)}>
+              Allow
+            </Button>
+          </>
+        )}
       </ItemActions>
     </Item>
   )
@@ -185,9 +229,14 @@ export function App() {
   // Starts in "No project": a plain chat without any project context.
   const [active, setActive] = useState<Active>({})
   const [models, setModels] = useState<Model[]>([])
-  const [model, setModel] = useState(() => localStorage.getItem('model') ?? 'default')
+  // Saved models from before Pi support carry no backend prefix.
+  const [model, setModel] = useState(() => {
+    const saved = localStorage.getItem('model') ?? 'default'
+    return /^(claude|pi):/.test(saved) ? saved : `claude:${saved}`
+  })
   const [items, setItems] = useState<Item[]>([])
-  const [permissions, setPermissions] = useState<Permission[]>([])
+  const [asks, setAsks] = useState<Ask[]>([])
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   // 'hidden' keeps the shell running while the panel is closed.
   const [terminal, setTerminal] = useState<'off' | 'open' | 'hidden'>('off')
@@ -206,14 +255,23 @@ export function App() {
   }, [])
 
   const refreshThreads = () => window.api.threads().then(setThreads)
+  const refreshModels = () =>
+    window.api.models().then(
+      (list) => {
+        setModels(list)
+        // Fall back when the saved model's backend was disabled or the model went away.
+        setModel((m) => (list.some((x) => x.value === m) || !list.length ? m : list[0].value))
+      },
+      (err) => setItems([{ kind: 'error', text: `Could not load models: ${err}` }]),
+    )
 
   useEffect(() => {
     refreshThreads()
-    window.api.models().then(setModels, (err) => setItems([{ kind: 'error', text: `Could not load models: ${err}` }]))
+    refreshModels()
     return window.api.onEvent((e) => {
-      if (e.kind === 'permission') setPermissions((ps) => [...ps, e])
+      if (e.kind === 'ask') setAsks((xs) => [...xs, e])
       else if (e.kind === 'done') {
-        setPermissions([])
+        setAsks([])
         setBusy(false)
       } else setItems((xs) => applyEvent(xs, e))
     })
@@ -235,7 +293,8 @@ export function App() {
   const newThread = () => chooseProject(active.folder ? active.cwd : undefined)
 
   const openThread = async (thread: Thread) => {
-    setActive({ id: thread.id, cwd: thread.cwd, folder: thread.folder })
+    setActive({ id: thread.id, cwd: thread.cwd, folder: thread.folder, backend: thread.backend })
+    if (backendOf(model) !== thread.backend) pickModel(`${thread.backend}:default`)
     setItems((await window.api.openThread(thread)).reduce(applyEvent, []))
   }
 
@@ -248,13 +307,19 @@ export function App() {
     setItems((xs) => [...xs, { kind: 'user', text }])
     setBusy(true)
     const r = await window.api.send(text, model)
-    if (r) setActive((a) => ({ ...a, id: r.sessionId, cwd: r.cwd }))
+    if (r) setActive((a) => ({ ...a, id: r.sessionId, cwd: r.cwd, backend: r.backend }))
     refreshThreads()
   }
 
-  const reply = (id: string, allow: boolean) => {
-    window.api.reply(id, allow)
-    setPermissions((ps) => ps.filter((p) => p.id !== id))
+  const reply = (id: string, answer: Answer) => {
+    window.api.reply(id, answer)
+    setAsks((xs) => xs.filter((x) => x.id !== id))
+  }
+
+  // Runs a command (e.g. `pi auth login`) in the terminal panel, opening it if needed.
+  const runInTerminal = (command: string) => {
+    window.api.term.run(command)
+    setTerminal('open')
   }
 
   const turns = toTurns(items)
@@ -267,6 +332,7 @@ export function App() {
       busy={busy}
       models={models}
       model={model}
+      backend={active.id ? active.backend : undefined}
       onModelChange={pickModel}
       onSend={send}
       onStop={() => window.api.stop()}
@@ -297,7 +363,27 @@ export function App() {
           fontFamily='"JetBrainsMono Nerd Font", ui-monospace, monospace'
         />
       )}
-      <AppSidebar threads={threads} active={active} busy={busy} onNew={newThread} onOpen={openThread} />
+      <AppSidebar
+        threads={threads}
+        active={active}
+        busy={busy}
+        onNew={newThread}
+        onOpen={openThread}
+        onSettings={() => setSettingsOpen(true)}
+      />
+      <SettingsSheet
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        models={models}
+        onRunInTerminal={(command) => {
+          setSettingsOpen(false)
+          runInTerminal(command)
+        }}
+        onChange={() => {
+          refreshModels()
+          refreshThreads()
+        }}
+      />
       <SidebarInset className="h-svh min-w-0 flex-row bg-transparent">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <TitleBar />
@@ -360,9 +446,7 @@ export function App() {
                               <Reply replies={turn.replies} streaming={last && busy} />
                             )}
                             {last &&
-                              permissions.map((p) => (
-                                <Confirmation key={p.id} permission={p} onReply={(allow) => reply(p.id, allow)} />
-                              ))}
+                              asks.map((a) => <AskCard key={a.id} ask={a} onReply={(answer) => reply(a.id, answer)} />)}
                           </MessageScrollerItem>
                         )
                       })}

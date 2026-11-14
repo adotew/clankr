@@ -8,16 +8,19 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group'
-import type { Model } from '../../../shared'
+import type { Backend, Model } from '../../../shared'
 
 export function PromptInput(props: {
   placeholder: string
   busy: boolean
   models: Model[]
   model: string
+  // Set once a thread has started: only that backend's models can continue it.
+  backend?: Backend
   onModelChange: (model: string) => void
   onSend: (text: string) => void
   onStop: () => void
@@ -27,6 +30,7 @@ export function PromptInput(props: {
   const formRef = React.useRef<HTMLFormElement>(null)
   const canSend = !busy && text.trim().length > 0
   const modelName = models.find((m) => m.value === model)?.displayName ?? model
+  const groups = [...new Set(models.map((m) => m.group))]
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -59,17 +63,27 @@ export function PromptInput(props: {
               {modelName}
               <ChevronDownIcon />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="max-h-80 w-56">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Model</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={model} onValueChange={(value) => props.onModelChange(String(value))}>
-                  {models.map((m) => (
-                    <DropdownMenuRadioItem key={m.value} value={m.value} closeOnClick>
-                      {m.displayName}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuGroup>
+            <DropdownMenuContent align="start" side="top" className="max-h-96 w-64">
+              <DropdownMenuRadioGroup value={model} onValueChange={(value) => props.onModelChange(String(value))}>
+                {groups.map((group, i) => (
+                  <DropdownMenuGroup key={group}>
+                    {i > 0 && <DropdownMenuSeparator />}
+                    <DropdownMenuLabel>{group}</DropdownMenuLabel>
+                    {models
+                      .filter((m) => m.group === group)
+                      .map((m) => (
+                        <DropdownMenuRadioItem
+                          key={m.value}
+                          value={m.value}
+                          disabled={!!props.backend && m.backend !== props.backend}
+                          closeOnClick
+                        >
+                          {m.displayName}
+                        </DropdownMenuRadioItem>
+                      ))}
+                  </DropdownMenuGroup>
+                ))}
+              </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
           {busy ? (
