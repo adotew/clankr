@@ -294,7 +294,7 @@ export function App() {
           if (!latest.current.busy) latest.current.cycleEffort()
         } else return
       } else if (e.code === 'KeyJ') toggle('terminal')
-      else if (e.code === 'KeyD') toggle('diff')
+      else if (e.code === 'KeyG') toggle('diff')
       else if (e.code === 'KeyB') toggle('browser')
       else if (e.code === 'KeyP') togglePalette('threads')
       else if (e.code === 'KeyN') {
@@ -418,7 +418,7 @@ export function App() {
     { key: 'folder', label: 'Open folder…', icon: <FolderOpenIcon />, disabled: busy, run: pickFolder },
     { key: 'none', label: 'New chat without project', icon: <MessageCircleIcon />, disabled: busy, run: () => chooseProject(undefined) },
     { key: 'terminal', label: 'Toggle terminal', icon: <SquareTerminalIcon />, hint: '⌘J', run: () => toggle('terminal') },
-    { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘D', run: () => toggle('diff') },
+    { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘G', run: () => toggle('diff') },
     { key: 'browser', label: 'Toggle browser', icon: <GlobeIcon />, hint: '⌘B', run: () => toggle('browser') },
     { key: 'settings', label: 'Settings', icon: <SettingsIcon />, hint: '⌘,', run: window.api.openSettings },
   ]

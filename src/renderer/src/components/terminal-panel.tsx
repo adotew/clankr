@@ -82,11 +82,13 @@ let nextPane = 0
 function TerminalPane({
   cwd,
   focused,
+  split,
   onFocus,
   onExit,
 }: {
   cwd?: string
   focused: boolean
+  split: boolean
   onFocus: () => void
   onExit: () => void
 }) {
@@ -154,8 +156,9 @@ function TerminalPane({
       ref={ref}
       onFocus={onFocus}
       className={cn(
-        'h-full overflow-hidden rounded-xl bg-sidebar/40 pt-1 pl-2 caret-transparent ring-1 transition-[opacity,box-shadow]',
-        focused ? 'ring-foreground/30' : 'ring-sidebar-border opacity-60',
+        'h-full overflow-hidden rounded-xl pt-1 pl-2 caret-transparent transition-[opacity,box-shadow]',
+        // A lone pane blends into the panel; splits outline the active one.
+        split && (focused ? 'ring-1 ring-foreground/30' : 'opacity-60'),
       )}
     />
   )
@@ -236,9 +239,9 @@ export function TerminalPanel({
       if (!e.metaKey) return
       e.stopPropagation()
       if (e.altKey || e.ctrlKey) return
-      // Cmd+Shift+D splits down, as in Ghostty; Cmd+\ splits right, since Cmd+D toggles the diff.
-      const dir = e.shiftKey && e.code === 'KeyD' ? 'col' : !e.shiftKey && e.code === 'Backslash' ? 'row' : undefined
-      if (!dir) return
+      // Cmd+D splits right and Cmd+Shift+D splits down, as in Ghostty.
+      if (e.code !== 'KeyD') return
+      const dir = e.shiftKey ? 'col' : 'row'
       e.preventDefault()
       latest.current.split(dir)
     }
@@ -304,6 +307,7 @@ export function TerminalPanel({
               <TerminalPane
                 cwd={cwd}
                 focused={visible && view === 'terminal' && active === pane}
+                split={panes.length > 1}
                 onFocus={() => setActive(pane)}
                 onExit={() => setLayout((l) => l && removePane(l, pane))}
               />
