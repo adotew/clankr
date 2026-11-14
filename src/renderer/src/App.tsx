@@ -107,9 +107,12 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function Reply({ replies, streaming }: { replies: Item[]; streaming: boolean }) {
+function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: boolean; waiting: boolean }) {
   const text = replies.flatMap((r) => (r.kind === 'assistant' ? [r.text] : [])).join('\n\n')
   const groups = groupReplies(replies)
+  const last = replies.at(-1)
+  // Streaming text and running tools show their own progress; cover the silent gaps in between.
+  const thinking = streaming && !waiting && last?.kind !== 'assistant' && !(last?.kind === 'tool' && !last.result)
 
   return (
     <Message>
@@ -135,6 +138,14 @@ function Reply({ replies, streaming }: { replies: Item[]; streaming: boolean }) 
             </Markdown>
           )
         })}
+        {thinking && (
+          <p
+            role="status"
+            className="shimmer text-sm text-muted-foreground/60 [--shimmer-color:var(--color-foreground)] motion-reduce:shimmer-none"
+          >
+            Thinking…
+          </p>
+        )}
         {!streaming && text && (
           <MessageFooter className="px-0">
             <CopyButton text={text} />
@@ -448,7 +459,7 @@ export function App() {
                               </Message>
                             )}
                             {(turn.replies.length > 0 || (last && busy)) && (
-                              <Reply replies={turn.replies} streaming={last && busy} />
+                              <Reply replies={turn.replies} streaming={last && busy} waiting={asks.length > 0} />
                             )}
                             {last &&
                               asks.map((a) => <AskCard key={a.id} ask={a} onReply={(answer) => reply(a.id, answer)} />)}
