@@ -64,7 +64,10 @@ export function AppSidebar(props: {
   const { threads, active, busy } = props
 
   return (
-    <Sidebar>
+    <Sidebar
+      variant="floating"
+      className="[&>[data-slot=sidebar-inner]]:rounded-2xl [&>[data-slot=sidebar-inner]]:bg-sidebar/50 [&>[data-slot=sidebar-inner]]:backdrop-blur-xl"
+    >
       <SidebarHeader className="pt-0 [-webkit-app-region:drag]">
         {/* Left padding leaves room for the macOS traffic lights. */}
         <div className="flex h-9 items-center gap-2 pl-18 fullscreen:pl-2">

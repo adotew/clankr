@@ -211,6 +211,7 @@ app.whenReady().then(() => {
     minWidth: 720,
     minHeight: 480,
     titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 20, y: 20 },
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
   })
   win.on('enter-full-screen', () => win.webContents.send('fullscreen', true))

@@ -144,8 +144,14 @@ function Reply({ replies, streaming }: { replies: Item[]; streaming: boolean }) 
 function TitleBar() {
   const { open } = useSidebar()
   return (
-    <div className="absolute inset-x-0 top-0 z-10 flex h-9 items-center pl-20 fullscreen:pl-3 [-webkit-app-region:drag]">
-      {!open && <SidebarTrigger className="[-webkit-app-region:no-drag]" />}
+    <div className="absolute inset-x-0 top-0 z-10 h-11 [-webkit-app-region:drag]">
+      {/* Mirrors the floating sidebar's top row so the traffic lights and toggle stay put when it closes. */}
+      {!open && (
+        <div className="absolute top-2 left-2 flex h-9 items-center gap-2 rounded-2xl bg-sidebar/50 pr-3 pl-20 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl fullscreen:pl-2">
+          <SidebarTrigger className="[-webkit-app-region:no-drag]" />
+          <span className="font-heming text-sm font-medium [text-box:trim-both_cap_alphabetic]">Clankr</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -269,31 +275,31 @@ export function App() {
 
   return (
     <SidebarProvider>
-      <AppSidebar threads={threads} active={active} busy={busy} onNew={newThread} onOpen={openThread} />
-      <SidebarInset className="h-svh min-w-0 flex-row">
-        <div className="relative isolate flex min-w-0 flex-1 flex-col">
-          {background && (
-            // Fades out once the first prompt is sent, then unmounts to free the GPU.
-            <GradientASCII
-              className={cn(
-                'pointer-events-none !absolute inset-0 -z-10 transition-opacity duration-700',
-                turns.length > 0 && 'opacity-0',
-              )}
-              onTransitionEnd={() => turns.length > 0 && setBackground(false)}
-              colors={['#1e3fd8', '#f6f8ff', '#a5d8ff', '#38bdf8']}
-              shape="horizon"
-              characters=" 01"
-              cellSize={12}
-              density={0.8}
-              glyphOpacity={0.84}
-              scale={1.85}
-              gradientOpacity={0.83}
-              grain={0.16}
-              variation={20}
-              scrambleRadius={0.29}
-              fontFamily='"JetBrainsMono Nerd Font", ui-monospace, monospace'
-            />
+      {background && (
+        // Shows through the translucent sidebar; fades out once the first prompt is sent, then unmounts to free the GPU.
+        <GradientASCII
+          className={cn(
+            'pointer-events-none !fixed inset-0 transition-opacity duration-700',
+            turns.length > 0 && 'opacity-0',
           )}
+          onTransitionEnd={() => turns.length > 0 && setBackground(false)}
+          colors={['#1e3fd8', '#f6f8ff', '#a5d8ff', '#38bdf8']}
+          shape="horizon"
+          characters=" 01"
+          cellSize={12}
+          density={0.8}
+          glyphOpacity={0.84}
+          scale={1.85}
+          gradientOpacity={0.83}
+          grain={0.16}
+          variation={20}
+          scrambleRadius={0.29}
+          fontFamily='"JetBrainsMono Nerd Font", ui-monospace, monospace'
+        />
+      )}
+      <AppSidebar threads={threads} active={active} busy={busy} onNew={newThread} onOpen={openThread} />
+      <SidebarInset className="h-svh min-w-0 flex-row bg-transparent">
+        <div className="relative flex min-w-0 flex-1 flex-col">
           <TitleBar />
 
           {turns.length === 0 ? (
