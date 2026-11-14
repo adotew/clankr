@@ -171,7 +171,7 @@ function TitleBar({ title, folder, busy, onClick }: { title: string; folder?: st
   return (
     <div className="absolute inset-x-0 top-0 z-10 h-11 [-webkit-app-region:drag]">
       {/* Left padding leaves room for the macOS traffic lights. */}
-      <div className="absolute top-2 left-2 flex h-9 items-center pl-20 fullscreen:pl-2">
+      <div className="absolute top-2 left-2 flex h-9 items-center rounded-2xl bg-sidebar/50 pr-1 pl-20 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl fullscreen:pl-1">
         <button
           type="button"
           onClick={onClick}
