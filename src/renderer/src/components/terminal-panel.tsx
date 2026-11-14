@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
 
+import { cursorTrail } from './cursor-trail'
+
 const font = '"JetBrainsMono Nerd Font", "JetBrainsMono NF", monospace'
 
 // Make ghostty-web render like native Ghostty.
@@ -85,6 +87,8 @@ export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible:
       fit.fit()
       fit.observeResize()
       termRef.current = term
+      const canvas = ref.current.querySelector('canvas')
+      if (canvas) cleanups.push(cursorTrail(canvas))
 
       window.api.term.start(cwd, term.cols, term.rows)
       const input = term.onData((data) => window.api.term.input(data))
