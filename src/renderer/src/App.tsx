@@ -4,6 +4,7 @@ import {
   ChevronDownIcon,
   CircleAlertIcon,
   CopyIcon,
+  FolderIcon,
   FolderOpenIcon,
   MessageCircleIcon,
   ShieldQuestionIcon,
@@ -246,6 +247,7 @@ export function App() {
     const saved = localStorage.getItem('model') ?? 'default'
     return /^(claude|pi):/.test(saved) ? saved : `claude:${saved}`
   })
+  const [recents, setRecents] = useState<string[]>(() => JSON.parse(localStorage.getItem('recentProjects') ?? '[]'))
   const [items, setItems] = useState<Item[]>([])
   const [asks, setAsks] = useState<Ask[]>([])
   const [busy, setBusy] = useState(false)
@@ -312,6 +314,11 @@ export function App() {
     await window.api.newThread(cwd)
     setActive({ cwd, folder: cwd && folderName(cwd) })
     setItems([])
+    if (cwd) {
+      const next = [cwd, ...recents.filter((r) => r !== cwd)].slice(0, 5)
+      setRecents(next)
+      localStorage.setItem('recentProjects', JSON.stringify(next))
+    }
   }
 
   const pickFolder = async () => {
@@ -443,6 +450,16 @@ export function App() {
               <div className="relative w-full max-w-3xl rounded-2xl bg-background/30 backdrop-blur-md [&_[data-slot=input-group]]:border-transparent">
                 {prompt}
               </div>
+              {recents.length > 0 && (
+                <div className="relative flex max-w-3xl flex-wrap justify-center gap-2">
+                  {recents.map((dir) => (
+                    <Button key={dir} variant="ghost" size="sm" title={dir} disabled={busy} onClick={() => chooseProject(dir)}>
+                      <FolderIcon />
+                      {folderName(dir)}
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <MessageScrollerProvider autoScroll>
