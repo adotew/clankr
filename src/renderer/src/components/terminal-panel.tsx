@@ -198,6 +198,29 @@ function rects(node: Layout | undefined, r: Rect = { x: 0, y: 0, w: 1, h: 1 }): 
 
 const pct = (n: number) => `${n * 100}%`
 
+const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as const
+
+// The pane touching the active one on the given side, preferring the one level with its centre.
+function neighbour(panes: [number, Rect][], active: number, [dx, dy]: readonly [number, number]) {
+  const cur = panes.find(([p]) => p === active)?.[1]
+  if (!cur) return
+  const eps = 1e-6
+  const [ax, ay] = [cur.x + cur.w / 2, cur.y + cur.h / 2]
+  let best: { pane: number; score: number } | undefined
+  for (const [pane, r] of panes) {
+    const touches =
+      (dx > 0 && Math.abs(r.x - (cur.x + cur.w)) < eps) ||
+      (dx < 0 && Math.abs(r.x + r.w - cur.x) < eps) ||
+      (dy > 0 && Math.abs(r.y - (cur.y + cur.h)) < eps) ||
+      (dy < 0 && Math.abs(r.y + r.h - cur.y) < eps)
+    const overlaps = dx ? r.y < cur.y + cur.h && r.y + r.h > cur.y : r.x < cur.x + cur.w && r.x + r.w > cur.x
+    if (!touches || !overlaps) continue
+    const score = dx ? Math.abs(r.y + r.h / 2 - ay) : Math.abs(r.x + r.w / 2 - ax)
+    if (!best || score < best.score) best = { pane, score }
+  }
+  return best?.pane
+}
+
 export function TerminalPanel({
   cwd,
   visible,
@@ -226,8 +249,12 @@ export function TerminalPanel({
     setActive(pane)
   }
   const close = () => setLayout((l) => l && removePane(l, active))
-  const latest = useRef({ split, close, view })
-  latest.current = { split, close, view }
+  const focusDir = (d: readonly [number, number]) => {
+    const pane = neighbour(panes, active, d)
+    if (pane !== undefined) setActive(pane)
+  }
+  const latest = useRef({ split, close, focusDir, view })
+  latest.current = { split, close, focusDir, view }
 
   useEffect(() => {
     if (panes.length === 0) onExit()
@@ -240,8 +267,14 @@ export function TerminalPanel({
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey) return
       e.stopPropagation()
-      if (e.altKey || e.ctrlKey) return
-      if (latest.current.view !== 'terminal') return
+      if (e.ctrlKey || latest.current.view !== 'terminal') return
+      if (e.altKey) {
+        // Cmd+Option+Arrow moves focus to the neighbouring pane.
+        if (!(e.code in arrows)) return
+        latest.current.focusDir(arrows[e.code as keyof typeof arrows])
+        e.preventDefault()
+        return
+      }
       // Cmd+D splits right and Cmd+Shift+D splits down, as in Ghostty; Cmd+W closes the active pane.
       // preventDefault also stops the menu's Cmd+W from closing the window.
       if (e.code === 'KeyD') latest.current.split(e.shiftKey ? 'col' : 'row')
