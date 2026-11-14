@@ -224,8 +224,9 @@ export function TerminalPanel({
     setLayout(splitPane(layout, active, dir, pane))
     setActive(pane)
   }
-  const latest = useRef({ split })
-  latest.current = { split }
+  const close = () => setLayout((l) => l && removePane(l, active))
+  const latest = useRef({ split, close, view })
+  latest.current = { split, close, view }
 
   useEffect(() => {
     if (panes.length === 0) onExit()
@@ -239,11 +240,13 @@ export function TerminalPanel({
       if (!e.metaKey) return
       e.stopPropagation()
       if (e.altKey || e.ctrlKey) return
-      // Cmd+D splits right and Cmd+Shift+D splits down, as in Ghostty.
-      if (e.code !== 'KeyD') return
-      const dir = e.shiftKey ? 'col' : 'row'
+      if (latest.current.view !== 'terminal') return
+      // Cmd+D splits right and Cmd+Shift+D splits down, as in Ghostty; Cmd+W closes the active pane.
+      // preventDefault also stops the menu's Cmd+W from closing the window.
+      if (e.code === 'KeyD') latest.current.split(e.shiftKey ? 'col' : 'row')
+      else if (e.code === 'KeyW' && !e.shiftKey) latest.current.close()
+      else return
       e.preventDefault()
-      latest.current.split(dir)
     }
     const aside = asideRef.current
     aside?.addEventListener('keydown', onKey, true)
