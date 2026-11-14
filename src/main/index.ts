@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import { spawn, type IPty } from '@lydell/node-pty'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -48,6 +48,12 @@ const readPiIndex = async (): Promise<PiThread[]> => {
 
 let win: BrowserWindow
 let settingsWin: BrowserWindow | undefined
+
+// Matches --background in styles.css, so resizing never flashes white before the page repaints.
+const background = () => (nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff')
+nativeTheme.on('updated', () => {
+  for (const w of BrowserWindow.getAllWindows()) w.setBackgroundColor(background())
+})
 
 const load = (w: BrowserWindow, hash = '') => {
   if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL + hash)
@@ -221,6 +227,7 @@ ipcMain.on('open-settings', () => {
     parent: win,
     title: 'Settings',
     titleBarStyle: 'hiddenInset',
+    backgroundColor: background(),
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
   })
   settingsWin.on('closed', () => (settingsWin = undefined))
@@ -414,6 +421,7 @@ app.whenReady().then(() => {
     minWidth: 720,
     minHeight: 480,
     titleBarStyle: 'hiddenInset',
+    backgroundColor: background(),
     trafficLightPosition: { x: 20, y: 20 },
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
   })
