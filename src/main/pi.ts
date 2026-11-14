@@ -51,7 +51,21 @@ type PiMessage = {
   stopReason?: string
   errorMessage?: string
 }
-export type PiModel = { id: string; name: string; provider: string }
+// In `thinkingLevelMap`, null marks an unsupported level; xhigh and max are only supported when listed.
+export type PiModel = {
+  id: string
+  name: string
+  provider: string
+  reasoning?: boolean
+  thinkingLevelMap?: Record<string, string | null>
+}
+
+export const piEfforts = ({ reasoning, thinkingLevelMap: map = {} }: PiModel) =>
+  reasoning
+    ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].filter((l) =>
+        l === 'xhigh' || l === 'max' ? map[l] : map[l] !== null,
+      )
+    : undefined
 
 // The subset of RPC records this app reads; see pi's docs/rpc.md and docs/json.md.
 export type PiRecord =

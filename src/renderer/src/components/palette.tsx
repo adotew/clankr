@@ -110,7 +110,7 @@ export function Palette(props: {
                       title={row.detail}
                       className={cn(
                         'group flex h-8 cursor-default items-center gap-3 rounded-lg px-2 text-sm [&_svg]:size-4 [&_svg]:shrink-0',
-                        index === current && 'bg-accent text-accent-foreground',
+                        index === current && 'bg-foreground/10',
                         row.disabled && 'opacity-50',
                       )}
                     >

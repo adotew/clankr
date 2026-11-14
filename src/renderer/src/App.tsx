@@ -273,7 +273,7 @@ export function App() {
   const [panelView, setPanelView] = useState<PanelView>('terminal')
   const [palette, setPalette] = useState<'commands' | 'threads'>()
   // Lets the keydown listener, registered once, see the latest state.
-  const latest = useRef({ terminal, panelView, busy, newThread: () => {} })
+  const latest = useRef({ terminal, panelView, busy, newThread: () => {}, cycleEffort: () => {} })
 
   // Shows `view` in the panel, or hides the panel if `view` is already showing.
   const toggle = (view: PanelView) => {
@@ -288,8 +288,10 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.altKey || e.ctrlKey) return
       if (e.shiftKey) {
-        if (e.code !== 'KeyP') return
-        togglePalette('commands')
+        if (e.code === 'KeyP') togglePalette('commands')
+        else if (e.code === 'KeyE') {
+          if (!latest.current.busy) latest.current.cycleEffort()
+        } else return
       } else if (e.code === 'KeyJ') toggle('terminal')
       else if (e.code === 'KeyD') toggle('diff')
       else if (e.code === 'KeyP') togglePalette('threads')
@@ -353,7 +355,6 @@ export function App() {
 
   // A "No project" thread's scratch folder is never reused; the next one gets its own.
   const newThread = () => chooseProject(active.folder ? active.cwd : undefined)
-  latest.current = { terminal, panelView, busy, newThread }
 
   const openThread = async (thread: Thread) => {
     setActive({ id: thread.id, cwd: thread.cwd, folder: thread.folder, backend: thread.backend })
@@ -377,10 +378,28 @@ export function App() {
     localStorage.setItem('model', value)
   }
 
+  // Effort is remembered per model, so switching models brings back that model's level.
+  const [efforts, setEfforts] = useState<Record<string, string>>(() => JSON.parse(localStorage.getItem('efforts') ?? '{}'))
+  const levels = models.find((m) => m.value === model)?.efforts ?? []
+  const effort = levels.includes(efforts[model]) ? efforts[model] : undefined
+  const pickEffort = (value: string | undefined) => {
+    const { [model]: _, ...rest } = efforts
+    const next = value ? { ...rest, [model]: value } : rest
+    setEfforts(next)
+    localStorage.setItem('efforts', JSON.stringify(next))
+  }
+  // Steps through Default and the model's levels, wrapping around.
+  const cycleEffort = () => {
+    if (!levels.length) return
+    const order = [undefined, ...levels]
+    pickEffort(order[(order.indexOf(effort) + 1) % order.length])
+  }
+  latest.current = { terminal, panelView, busy, newThread, cycleEffort }
+
   const send = async (text: string) => {
     setItems((xs) => [...xs, { kind: 'user', text }])
     setBusy(true)
-    const r = await window.api.send(text, model)
+    const r = await window.api.send(text, model, effort)
     if (r) setActive((a) => ({ ...a, id: r.sessionId, cwd: r.cwd, backend: r.backend }))
     refreshThreads()
   }
@@ -423,6 +442,8 @@ export function App() {
       model={model}
       backend={active.id ? active.backend : undefined}
       onModelChange={pickModel}
+      effort={effort}
+      onEffortChange={pickEffort}
       onSend={send}
       onStop={() => window.api.stop()}
     />

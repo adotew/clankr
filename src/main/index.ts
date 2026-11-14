@@ -14,10 +14,11 @@ import {
   renameSession,
   tagSession,
   type CanUseTool,
+  type EffortLevel,
   type Query,
 } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent, Backend, Model, PiInfo, Settings, Thread } from '../shared'
-import { modified, piModels, PiRpc, piVersion, readPiSession, shellEnv, toEvents as piEvents } from './pi'
+import { modified, piEfforts, piModels, PiRpc, piVersion, readPiSession, shellEnv, toEvents as piEvents } from './pi'
 
 // Marks sessions created by this app so other Claude Code sessions stay out of the sidebar.
 const TAG = 'clankr'
@@ -139,11 +140,12 @@ async function claudeModels(): Promise<Model[]> {
     })(),
   })
   try {
-    return (await q.supportedModels()).map(({ value, displayName }) => ({
+    return (await q.supportedModels()).map(({ value, displayName, supportedEffortLevels }) => ({
       value: `claude:${value}`,
       displayName,
       backend: 'claude',
       group: 'Claude',
+      efforts: supportedEffortLevels,
     }))
   } finally {
     q.close()
@@ -158,6 +160,7 @@ const pi2Models = async (): Promise<Model[]> => [
     displayName: m.name,
     backend: 'pi',
     group: `Pi · ${m.provider}`,
+    efforts: piEfforts(m),
   })),
 ]
 
@@ -311,7 +314,7 @@ ipcMain.handle('delete-thread', async (_, thread: Thread): Promise<boolean> => {
   return true
 })
 
-ipcMain.handle('send', async (_, prompt: string, model: string) => {
+ipcMain.handle('send', async (_, prompt: string, model: string, effort: string | undefined) => {
   if (busy) return
   const [next, id] = model.split(/:(.*)/) as [Backend, string]
   // A thread keeps the backend it started with; their sessions aren't interchangeable.
@@ -330,7 +333,7 @@ ipcMain.handle('send', async (_, prompt: string, model: string) => {
     await mkdir(cwd, { recursive: true })
   }
   try {
-    await (backend === 'pi' ? sendPi(prompt, id, cwd) : sendClaude(prompt, id, cwd))
+    await (backend === 'pi' ? sendPi(prompt, id, effort, cwd) : sendClaude(prompt, id, effort, cwd))
   } catch (err) {
     emit({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
   } finally {
@@ -340,7 +343,7 @@ ipcMain.handle('send', async (_, prompt: string, model: string) => {
   return { sessionId, cwd, backend }
 })
 
-async function sendPi(prompt: string, model: string, cwd: string) {
+async function sendPi(prompt: string, model: string, effort: string | undefined, cwd: string) {
   const isNew = !sessionId
   if (!pi) {
     const rpc = new PiRpc(piBin, sessionId ? ['--session', sessionId] : [], cwd, await shellEnv)
@@ -372,6 +375,8 @@ async function sendPi(prompt: string, model: string, cwd: string) {
     const [provider, modelId] = model.split(/\/(.*)/)
     await rpc.call({ type: 'set_model', provider, modelId })
   }
+  // Without an effort, set_model has already applied pi's own default level for the model.
+  if (effort) await rpc.call({ type: 'set_thinking_level', level: effort })
   // Listen before prompting: a fast run can settle before the prompt's response arrives.
   const settled = new Promise<void>((resolve, reject) => {
     settle = (err) => (err ? reject(err) : resolve())
@@ -389,7 +394,7 @@ async function sendPi(prompt: string, model: string, cwd: string) {
     await writePiIndex([...(await readPiIndex()), { file: sessionId, cwd, title: prompt.slice(0, 120) }])
 }
 
-async function sendClaude(prompt: string, model: string, cwd: string) {
+async function sendClaude(prompt: string, model: string, effort: string | undefined, cwd: string) {
   const isNew = !sessionId
   current = query({
     prompt,
@@ -398,6 +403,7 @@ async function sendClaude(prompt: string, model: string, cwd: string) {
       resume: sessionId,
       canUseTool,
       model: model === 'default' ? undefined : model,
+      effort: effort as EffortLevel | undefined,
       includePartialMessages: true,
       // Skip ~/.claude settings: global hooks there can answer permission requests before our
       // approval UI sees them. Project settings and CLAUDE.md still load.

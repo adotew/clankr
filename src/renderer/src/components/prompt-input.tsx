@@ -1,16 +1,7 @@
 import * as React from 'react'
-import { ArrowUpIcon, ChevronDownIcon, SquareIcon } from 'lucide-react'
+import { ArrowUpIcon, SquareIcon } from 'lucide-react'
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { ModelPicker } from '@/components/model-picker'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group'
 import type { Backend, Model } from '../../../shared'
 
@@ -22,6 +13,9 @@ export function PromptInput(props: {
   // Set once a thread has started: only that backend's models can continue it.
   backend?: Backend
   onModelChange: (model: string) => void
+  // Undefined means the model's default level.
+  effort?: string
+  onEffortChange: (effort: string | undefined) => void
   onSend: (text: string) => void
   onStop: () => void
 }) {
@@ -29,8 +23,6 @@ export function PromptInput(props: {
   const [text, setText] = React.useState('')
   const formRef = React.useRef<HTMLFormElement>(null)
   const canSend = !busy && text.trim().length > 0
-  const modelName = models.find((m) => m.value === model)?.displayName ?? model
-  const groups = [...new Set(models.map((m) => m.group))]
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -56,36 +48,15 @@ export function PromptInput(props: {
           }}
         />
         <InputGroupAddon align="block-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<InputGroupButton size="sm" variant="ghost" disabled={busy} aria-label={`Model: ${modelName}`} />}
-            >
-              {modelName}
-              <ChevronDownIcon />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="max-h-96 w-64">
-              <DropdownMenuRadioGroup value={model} onValueChange={(value) => props.onModelChange(String(value))}>
-                {groups.map((group, i) => (
-                  <DropdownMenuGroup key={group}>
-                    {i > 0 && <DropdownMenuSeparator />}
-                    <DropdownMenuLabel>{group}</DropdownMenuLabel>
-                    {models
-                      .filter((m) => m.group === group)
-                      .map((m) => (
-                        <DropdownMenuRadioItem
-                          key={m.value}
-                          value={m.value}
-                          disabled={!!props.backend && m.backend !== props.backend}
-                          closeOnClick
-                        >
-                          {m.displayName}
-                        </DropdownMenuRadioItem>
-                      ))}
-                  </DropdownMenuGroup>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ModelPicker
+            models={models}
+            model={model}
+            backend={props.backend}
+            effort={props.effort}
+            disabled={busy}
+            onModelChange={props.onModelChange}
+            onEffortChange={props.onEffortChange}
+          />
           {busy ? (
             <InputGroupButton
               type="button"

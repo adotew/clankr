@@ -12,7 +12,8 @@ export type AgentEvent =
 // For Pi threads, `id` is the session file path.
 export type Thread = { id: string; title: string; cwd: string; folder?: string; backend: Backend; updated: number }
 // `value` is prefixed with its backend, e.g. "claude:default" or "pi:anthropic/claude-opus-5-5".
-export type Model = { value: string; displayName: string; backend: Backend; group: string }
+// `efforts` lists the effort/thinking levels the model accepts, weakest first; absent when it has none.
+export type Model = { value: string; displayName: string; backend: Backend; group: string; efforts?: string[] }
 export type Settings = { claude: boolean; pi: boolean }
 export type PiInfo = { ok: boolean; version: string }
 
@@ -25,7 +26,8 @@ export type Api = {
   renameThread: (thread: Thread, title: string) => Promise<void>
   // Asks for confirmation; resolves false if the user cancels.
   deleteThread: (thread: Thread) => Promise<boolean>
-  send: (prompt: string, model: string) => Promise<{ sessionId?: string; cwd: string; backend: Backend } | undefined>
+  // `effort` undefined leaves the model at its default level.
+  send: (prompt: string, model: string, effort: string | undefined) => Promise<{ sessionId?: string; cwd: string; backend: Backend } | undefined>
   stop: () => Promise<void>
   reply: (id: string, answer: boolean | string | undefined) => void
   settings: () => Promise<Settings>
