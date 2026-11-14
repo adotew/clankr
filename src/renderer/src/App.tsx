@@ -305,6 +305,17 @@ export function App() {
     setItems((await window.api.openThread(thread)).reduce(applyEvent, []))
   }
 
+  const renameThread = async (thread: Thread, title: string) => {
+    await window.api.renameThread(thread, title)
+    refreshThreads()
+  }
+
+  const deleteThread = async (thread: Thread) => {
+    if (!(await window.api.deleteThread(thread))) return
+    if (thread.id === active.id) chooseProject(thread.folder ? thread.cwd : undefined)
+    refreshThreads()
+  }
+
   const pickModel = (value: string) => {
     setModel(value)
     localStorage.setItem('model', value)
@@ -370,6 +381,8 @@ export function App() {
         busy={busy}
         onNew={newThread}
         onOpen={openThread}
+        onRename={renameThread}
+        onDelete={deleteThread}
         onSettings={window.api.openSettings}
       />
       <SidebarInset className="h-svh min-w-0 flex-row bg-transparent">

@@ -22,6 +22,9 @@ export type Api = {
   pickFolder: () => Promise<string | undefined>
   newThread: (cwd: string | undefined) => Promise<void>
   openThread: (thread: Thread) => Promise<AgentEvent[]>
+  renameThread: (thread: Thread, title: string) => Promise<void>
+  // Asks for confirmation; resolves false if the user cancels.
+  deleteThread: (thread: Thread) => Promise<boolean>
   send: (prompt: string, model: string) => Promise<{ sessionId?: string; cwd: string; backend: Backend } | undefined>
   stop: () => Promise<void>
   reply: (id: string, answer: boolean | string | undefined) => void

@@ -1,4 +1,16 @@
-import { FolderIcon, LoaderCircleIcon, MessageCircleIcon, PlusIcon, SettingsIcon } from 'lucide-react'
+import { useState } from 'react'
+import {
+  FolderIcon,
+  LoaderCircleIcon,
+  MessageCircleIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+  SettingsIcon,
+  Trash2Icon,
+} from 'lucide-react'
+
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 import {
   Sidebar,
@@ -9,6 +21,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarTrigger,
@@ -29,7 +42,15 @@ function ThreadButton(props: {
   running: boolean
   disabled?: boolean
   onClick?: () => void
+  onRename?: (title: string) => void
+  onDelete?: () => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const finish = (title?: string) => {
+    setEditing(false)
+    if (title?.trim() && title !== props.title) props.onRename?.(title)
+  }
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
@@ -40,7 +61,24 @@ function ThreadButton(props: {
         className="h-auto flex-col items-start gap-0.5 py-2"
       >
         <span className="flex w-full items-center gap-2">
-          <span className="truncate">{props.title}</span>
+          {editing ? (
+            <input
+              defaultValue={props.title}
+              aria-label="Thread title"
+              className="w-full min-w-0 rounded-sm bg-transparent outline-1 outline-sidebar-ring"
+              autoFocus
+              onFocus={(e) => e.target.select()}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') finish(e.currentTarget.value)
+                if (e.key === 'Escape') finish()
+              }}
+              onBlur={(e) => finish(e.target.value)}
+            />
+          ) : (
+            <span className="truncate">{props.title}</span>
+          )}
           {props.running && <LoaderCircleIcon className="ml-auto size-3.5 shrink-0 animate-spin" />}
         </span>
         <span className="flex w-full items-center gap-1 text-xs text-muted-foreground">
@@ -53,6 +91,23 @@ function ThreadButton(props: {
           {props.backend === 'pi' && <span className="ml-auto shrink-0">Pi</span>}
         </span>
       </SidebarMenuButton>
+      {props.onDelete && !props.disabled && (
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<SidebarMenuAction showOnHover aria-label="Thread actions" />}>
+            <MoreHorizontalIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="right" align="start">
+            <DropdownMenuItem onClick={() => setEditing(true)}>
+              <PencilIcon />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={props.onDelete}>
+              <Trash2Icon />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </SidebarMenuItem>
   )
 }
@@ -63,6 +118,8 @@ export function AppSidebar(props: {
   busy: boolean
   onNew: () => void
   onOpen: (thread: Thread) => void
+  onRename: (thread: Thread, title: string) => void
+  onDelete: (thread: Thread) => void
   onSettings: () => void
 }) {
   const { threads, active, busy } = props
@@ -106,6 +163,8 @@ export function AppSidebar(props: {
                   running={busy && t.id === active.id}
                   disabled={busy}
                   onClick={() => props.onOpen(t)}
+                  onRename={(title) => props.onRename(t, title)}
+                  onDelete={() => props.onDelete(t)}
                 />
               ))}
               {threads.length === 0 && !busy && (

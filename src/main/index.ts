@@ -2,16 +2,17 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import { spawn, type IPty } from '@lydell/node-pty'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import {
+  deleteSession,
   getSessionMessages,
   listSessions,
   query,
+  renameSession,
   tagSession,
   type CanUseTool,
-  type PermissionResult,
   type Query,
 } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent, Backend, Model, PiInfo, Settings, Thread } from '../shared'
@@ -45,6 +46,7 @@ const readPiIndex = async (): Promise<PiThread[]> => {
     return []
   }
 }
+const writePiIndex = (threads: PiThread[]) => writeFile(piIndex, JSON.stringify(threads))
 
 let win: BrowserWindow
 let settingsWin: BrowserWindow | undefined
@@ -263,6 +265,50 @@ ipcMain.handle('open-thread', async (_, thread: Thread): Promise<AgentEvent[]> =
   return messages.filter((m) => !m.parent_tool_use_id).flatMap((m) => toEvents(m.type, m.message, true))
 })
 
+ipcMain.handle('rename-thread', async (_, thread: Thread, title: string) => {
+  title = title.trim()
+  if (!title) return
+  if (thread.backend === 'pi')
+    await writePiIndex((await readPiIndex()).map((t) => (t.file === thread.id ? { ...t, title } : t)))
+  else await renameSession(thread.id, title, { dir: thread.cwd })
+})
+
+ipcMain.handle('delete-thread', async (_, thread: Thread): Promise<boolean> => {
+  if (busy) return false
+  const { response } = await dialog.showMessageBox(BrowserWindow.getFocusedWindow() ?? win, {
+    type: 'warning',
+    message: `Delete “${thread.title}”?`,
+    detail: thread.folder
+      ? 'The conversation is deleted. Files in the project folder are kept.'
+      : 'The conversation and the files it created are deleted.',
+    buttons: ['Delete', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+  })
+  if (response !== 0) return false
+
+  // Paths come from the renderer, so only delete what this app created: indexed Pi sessions and scratch folders.
+  let dir = thread.cwd
+  if (thread.backend === 'pi') {
+    const index = await readPiIndex()
+    const entry = index.find((t) => t.file === thread.id)
+    if (!entry) return false
+    dir = entry.cwd
+    await rm(entry.file, { force: true })
+    // Pi keeps one folder per cwd; a scratch thread's is empty now.
+    await rmdir(dirname(entry.file)).catch(() => {})
+    await writePiIndex(index.filter((t) => t !== entry))
+  } else await deleteSession(thread.id, { dir })
+  if (dirname(resolve(dir)) === scratchRoot) await rm(dir, { recursive: true, force: true })
+
+  if (thread.id === sessionId) {
+    sessionId = undefined
+    cwd = undefined
+    closePi()
+  }
+  return true
+})
+
 ipcMain.handle('send', async (_, prompt: string, model: string) => {
   if (busy) return
   const [next, id] = model.split(/:(.*)/) as [Backend, string]
@@ -338,10 +384,7 @@ async function sendPi(prompt: string, model: string, cwd: string) {
   const state = await rpc.call<{ sessionFile?: string }>({ type: 'get_state' })
   sessionId = state.sessionFile
   if (isNew && sessionId)
-    await writeFile(
-      piIndex,
-      JSON.stringify([...(await readPiIndex()), { file: sessionId, cwd, title: prompt.slice(0, 120) }]),
-    )
+    await writePiIndex([...(await readPiIndex()), { file: sessionId, cwd, title: prompt.slice(0, 120) }])
 }
 
 async function sendClaude(prompt: string, model: string, cwd: string) {
