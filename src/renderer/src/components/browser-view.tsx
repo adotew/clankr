@@ -35,7 +35,7 @@ export function BrowserView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <form
-        className="flex shrink-0 items-center gap-1 px-2 pb-2"
+        className="flex shrink-0 items-center gap-1 p-2"
         onSubmit={(e) => {
           e.preventDefault()
           const s = address.trim()
@@ -65,7 +65,9 @@ export function BrowserView() {
         />
       </form>
       {loaded ? (
-        <webview ref={ref} src={src} partition="persist:browser" className="min-h-0 flex-1" />
+        <div className="mx-2 mb-2 flex min-h-0 flex-1 overflow-hidden rounded-xl">
+          <webview ref={ref} src={src} partition="persist:browser" className="flex-1" />
+        </div>
       ) : (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">No page open</div>
       )}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Columns2Icon, Rows2Icon } from 'lucide-react'
+import { FileDiffIcon, GlobeIcon, SquareTerminalIcon } from 'lucide-react'
 import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
 
 import { cn } from '@/lib/utils'
@@ -69,6 +69,12 @@ const themes = {
 }
 
 export type PanelView = 'terminal' | 'diff' | 'browser'
+
+const viewIcons = {
+  terminal: <SquareTerminalIcon />,
+  diff: <FileDiffIcon />,
+  browser: <GlobeIcon />,
+}
 
 // Unique across panel remounts, so a late exit from an old shell can't close a new pane.
 let nextPane = 0
@@ -246,7 +252,8 @@ export function TerminalPanel({
       ref={asideRef}
       className={
         visible
-          ? 'relative m-2 flex max-w-[70%] min-w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-sidebar/50 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl'
+          // ml-11 leaves room for the 36px rail hanging off the left edge.
+          ? 'relative my-2 mr-2 ml-11 flex max-w-[70%] min-w-80 shrink-0'
           : 'hidden'
       }
       style={{ width }}
@@ -267,44 +274,27 @@ export function TerminalPanel({
         }
         className="left-0"
       />
-      <div className="flex h-9 shrink-0 items-center gap-1 px-2 [-webkit-app-region:drag]">
+      {/* The rail is a tab joined to the content, with a concave corner filling the gap beneath it. */}
+      <div className="absolute top-0 right-full flex flex-col items-center gap-1 rounded-l-2xl bg-sidebar/50 py-2 pl-2 backdrop-blur-xl [-webkit-app-region:drag]">
+        <div className="absolute top-full right-0 size-4 bg-sidebar/50 backdrop-blur-xl [mask-image:radial-gradient(circle_at_0_100%,transparent_16px,black_16.5px)]" />
         {(['terminal', 'diff', 'browser'] as const).map((v) => (
           <button
             type="button"
             key={v}
             onClick={() => onView(v)}
             aria-pressed={view === v}
-            className="rounded-md px-2 py-0.5 text-xs text-muted-foreground capitalize [-webkit-app-region:no-drag] hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground"
+            aria-label={v}
+            title={v[0].toUpperCase() + v.slice(1)}
+            className="rounded-md p-1.5 text-muted-foreground outline-none [-webkit-app-region:no-drag] focus-visible:ring-3 focus-visible:ring-ring/50 hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground [&_svg]:size-4"
           >
-            {v}
+            {viewIcons[v]}
           </button>
         ))}
-        {view === 'terminal' && (
-          <div className="ml-auto flex [-webkit-app-region:no-drag]">
-            {(
-              [
-                ['row', 'Split right (⌘\\)', <Columns2Icon key="row" />],
-                ['col', 'Split down (⌘⇧D)', <Rows2Icon key="col" />],
-              ] as const
-            ).map(([dir, label, icon]) => (
-              <button
-                type="button"
-                key={dir}
-                onClick={() => split(dir)}
-                aria-label={label}
-                title={label}
-                className="rounded-md p-1 text-muted-foreground hover:text-foreground [&_svg]:size-3.5"
-              >
-                {icon}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl rounded-tl-none bg-sidebar/50 backdrop-blur-xl">
         {/* Hidden with `invisible`, not `hidden`, so the terminals keep their size and don't reflow. */}
         {/* Each pane is padded 3px, so neighbours sit 6px apart and 8px from the panel edge. */}
-        <div className={cn('relative mx-[5px] mb-[5px] min-h-0 flex-1', view !== 'terminal' && 'invisible')}>
+        <div className={cn('relative m-[5px] min-h-0 flex-1', view !== 'terminal' && 'invisible')}>
           {panes.map(([pane, r]) => (
             <div
               key={pane}

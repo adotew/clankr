@@ -52,7 +52,7 @@ export function DiffView({ cwd, visible }: { cwd?: string; visible: boolean }) {
   const message = !cwd || patch === undefined ? 'Not a git repository' : patch === null ? null : !files.length && 'No changes'
   if (message !== false) return <Centered>{message}</Centered>
   return (
-    <div ref={measure} className="min-h-0 flex-1 space-y-2 overflow-auto px-2 pb-2">
+    <div ref={measure} className="min-h-0 flex-1 space-y-2 overflow-auto p-2">
       {files.map((file) => (
         <FileItem key={file.prevName ? `${file.prevName}→${file.name}` : file.name} file={file} wide={wide} />
       ))}
