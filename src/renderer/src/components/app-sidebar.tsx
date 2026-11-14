@@ -10,6 +10,7 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 
+import { ResizeHandle } from '@/components/resize-handle'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 import {
@@ -121,6 +122,7 @@ export function AppSidebar(props: {
   onRename: (thread: Thread, title: string) => void
   onDelete: (thread: Thread) => void
   onSettings: () => void
+  onResize: (x: number) => void
 }) {
   const { threads, active, busy } = props
 
@@ -129,6 +131,7 @@ export function AppSidebar(props: {
       variant="floating"
       className="[&>[data-slot=sidebar-inner]]:rounded-2xl [&>[data-slot=sidebar-inner]]:bg-sidebar/50 [&>[data-slot=sidebar-inner]]:backdrop-blur-xl"
     >
+      <ResizeHandle onDrag={props.onResize} className="-right-1" />
       <SidebarHeader className="pt-0 [-webkit-app-region:drag]">
         {/* Left padding leaves room for the macOS traffic lights. */}
         <div className="flex h-9 items-center gap-2 pl-18 fullscreen:pl-2">

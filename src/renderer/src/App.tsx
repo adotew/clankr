@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type CSSProperties, useEffect, useState } from 'react'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -15,6 +15,7 @@ import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
 import { TerminalPanel } from '@/components/terminal-panel'
+import { useStoredWidth } from '@/components/resize-handle'
 import { ToolStep, type ToolItem } from '@/components/tool-step'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
@@ -224,6 +225,7 @@ function AskCard({ ask, onReply }: { ask: Ask; onReply: (answer: Answer) => void
 }
 
 export function App() {
+  const [sidebarWidth, setSidebarWidth] = useStoredWidth('sidebarWidth', 256)
   const [threads, setThreads] = useState<Thread[]>([])
   // Starts in "No project": a plain chat without any project context.
   const [active, setActive] = useState<Active>({})
@@ -352,7 +354,7 @@ export function App() {
   )
 
   return (
-    <SidebarProvider>
+    <SidebarProvider style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}>
       {background && (
         // Shows through the translucent sidebar; fades out once the first prompt is sent, then unmounts to free the GPU.
         <GradientASCII
@@ -384,6 +386,8 @@ export function App() {
         onRename={renameThread}
         onDelete={deleteThread}
         onSettings={window.api.openSettings}
+        // The floating sidebar is inset 8px, so its edge sits 8px inside the container.
+        onResize={(x) => setSidebarWidth(Math.min(Math.max(x + 8, 200), 480))}
       />
       <SidebarInset className="h-svh min-w-0 flex-row bg-transparent">
         <div className="relative flex min-w-0 flex-1 flex-col">

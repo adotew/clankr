@@ -1,13 +1,13 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
 /* Streamdown renders markdown with Tailwind classes. */
 @source "../../../node_modules/streamdown/dist/*.js";
 
 @font-face {
   font-family: Heming;
-  src: url("./fonts/heming-variable.ttf") format("truetype");
+  src: url('./fonts/heming-variable.ttf') format('truetype');
   font-weight: 100 900;
 }
 
@@ -130,6 +130,14 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Set while dragging a resize handle: keep the cursor and skip width animations. */
+body.resizing,
+body.resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+  transition: none !important;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -138,4 +146,3 @@
     @apply bg-background text-foreground;
   }
 }
-

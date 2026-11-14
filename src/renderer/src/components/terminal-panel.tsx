@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
 
 import { cursorTrail } from './cursor-trail'
+import { ResizeHandle, useStoredWidth } from './resize-handle'
 
 const font = '"JetBrainsMono Nerd Font", "JetBrainsMono NF", monospace'
 
@@ -66,6 +67,7 @@ const themes = {
 export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible: boolean; onExit: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>(null)
+  const [width, setWidth] = useStoredWidth('terminalWidth', Math.round(innerWidth * 0.42))
 
   useEffect(() => {
     let disposed = false
@@ -120,10 +122,27 @@ export function TerminalPanel({ cwd, visible, onExit }: { cwd?: string; visible:
     <aside
       className={
         visible
-          ? 'm-2 flex w-[42%] min-w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-sidebar/50 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl'
+          ? 'relative m-2 flex max-w-[70%] min-w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-sidebar/50 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl'
           : 'hidden'
       }
+      style={{ width }}
     >
+      {/* The panel is inset 8px from the window's right edge. */}
+      <ResizeHandle
+        // Clamp to the same bounds as min-w-80 and max-w-[70%], so dragging back responds immediately.
+        onDrag={(x) =>
+          setWidth(
+            Math.max(
+              320,
+              Math.min(
+                innerWidth - 8 - x,
+                (ref.current?.parentElement?.parentElement?.clientWidth ?? innerWidth) * 0.7,
+              ),
+            ),
+          )
+        }
+        className="left-0"
+      />
       <div className="h-9 shrink-0 [-webkit-app-region:drag]" />
       <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden pl-2 caret-transparent" />
     </aside>
