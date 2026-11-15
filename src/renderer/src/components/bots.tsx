@@ -43,7 +43,8 @@ export function Roster({ entries, disabled }: { entries: RosterEntry[]; disabled
   if (!entries.length) return null
   return (
     <nav aria-label="Threads" className="relative z-20 flex shrink-0 items-center pl-3">
-      <Dock vertical iconSize={40} iconMagnification={64} iconDistance={120} className="m-0">
+      {/* Left-aligned, so a swelling bot grows out to the right, away from the window edge. */}
+      <Dock vertical direction="top" iconSize={40} iconMagnification={64} iconDistance={120} className="m-0 border-0">
         {entries.map((entry) => (
           <DockIcon
             key={entry.key}
