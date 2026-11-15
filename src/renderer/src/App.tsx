@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -18,7 +18,6 @@ import {
 import { BotAvatar, type BotAvatarState } from 'bot-avatars'
 
 import { botFromId, randomBot, ThreadBot, type Bot } from '@/components/bots'
-import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
@@ -45,13 +44,6 @@ import type { AgentEvent, Backend, Model, Thread } from '../../shared'
 type Item = { kind: 'user' | 'assistant' | 'error'; text: string } | ToolItem
 type Ask = Extract<AgentEvent, { kind: 'ask' }>
 type Answer = boolean | string | undefined
-
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
-const useDark = () =>
-  useSyncExternalStore(
-    (cb) => (darkQuery.addEventListener('change', cb), () => darkQuery.removeEventListener('change', cb)),
-    () => darkQuery.matches,
-  )
 
 const backendOf = (model: string) => model.split(':')[0] as Backend
 // One user prompt and everything the agent did in reply.
@@ -449,9 +441,6 @@ export function App() {
   }))
 
   const turns = toTurns(items)
-  const dark = useDark()
-  const [background, setBackground] = useState(true)
-  if (turns.length === 0 && !background) setBackground(true)
 
   const prompt = (
     <PromptInput
@@ -470,29 +459,6 @@ export function App() {
 
   return (
     <>
-      {background && (
-        // Shows through the translucent sidebar; fades out once the first prompt is sent, then unmounts to free the GPU.
-        <GradientASCII
-          className={cn(
-            'pointer-events-none !fixed inset-0 transition-opacity duration-700',
-            turns.length > 0 && 'opacity-0',
-          )}
-          onTransitionEnd={() => turns.length > 0 && setBackground(false)}
-          // Neutral greys, so the bots carry the colour.
-          colors={dark ? ['#3a3a3a', '#9a9a9a', '#6a6a6a', '#505050'] : ['#d4d4d4', '#fafafa', '#e8e8e8', '#dedede']}
-          shape="horizon"
-          characters=" 01"
-          cellSize={12}
-          density={0.8}
-          glyphOpacity={0.84}
-          scale={1.85}
-          gradientOpacity={0.83}
-          grain={0.16}
-          variation={20}
-          scrambleRadius={0.29}
-          fontFamily='"JetBrainsMono Nerd Font", ui-monospace, monospace'
-        />
-      )}
       <Palette
         open={palette === 'commands'}
         onOpenChange={(open) => setPalette(open ? 'commands' : undefined)}
@@ -580,7 +546,7 @@ export function App() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <div className="relative w-full max-w-3xl rounded-2xl bg-background/30 backdrop-blur-md [&_[data-slot=input-group]]:border-transparent">
+              <div className="relative w-full max-w-3xl">
                 {prompt}
               </div>
               {recents.length > 0 && (
