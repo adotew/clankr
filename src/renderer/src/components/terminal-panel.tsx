@@ -72,13 +72,13 @@ const themes = {
   dark: {
     background: '#141414',
     foreground: '#fafafa',
-    cursor: '#fafafa',
+    cursor: '#38bdf8', // from the app icon's gradient
     selectionBackground: '#404040',
   },
   light: {
     background: '#ffffff',
     foreground: '#0a0a0a',
-    cursor: '#0a0a0a',
+    cursor: '#1e3fd8',
     selectionBackground: '#d4d4d4',
   },
 }
@@ -128,6 +128,7 @@ function TerminalPane({
         fontSize: 12,
         fontFamily: font,
         cursorBlink: focused,
+        cursorStyle: 'bar',
         theme: dark ? themes.dark : themes.light,
       })
       const fit = new FitAddon()

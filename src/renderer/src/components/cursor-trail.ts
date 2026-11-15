@@ -8,6 +8,7 @@ type Renderer = {
   ctx: CanvasRenderingContext2D
   metrics: { width: number; height: number }
   theme: { cursor: string }
+  cursorStyle: 'block' | 'underline' | 'bar'
   currentBuffer: { getCursor(): { x: number; y: number; visible: boolean } }
 }
 
@@ -19,9 +20,11 @@ proto.render = function (...args) {
   render.apply(this, args)
   const cursor = this.currentBuffer.getCursor()
   const { width: w, height: h } = this.metrics
+  // Same bar width as ghostty-web's renderCursor, so the trail matches the cursor's shape.
+  const cw = this.cursorStyle === 'bar' ? Math.max(2, Math.floor(w * 0.15)) : w
   // args[2] is the scrollback offset; the cursor isn't drawn while scrolled up.
   if (cursor.visible && !args[2])
-    listeners.get(this.ctx.canvas)?.({ x: cursor.x * w, y: cursor.y * h, w, h }, this.theme.cursor)
+    listeners.get(this.ctx.canvas)?.({ x: cursor.x * w, y: cursor.y * h, w: cw, h }, this.theme.cursor)
 }
 
 const DURATION = 200
