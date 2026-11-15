@@ -20,8 +20,8 @@ proto.render = function (...args) {
   render.apply(this, args)
   const cursor = this.currentBuffer.getCursor()
   const { width: w, height: h } = this.metrics
-  // Same bar width as ghostty-web's renderCursor, so the trail matches the cursor's shape.
-  const cw = this.cursorStyle === 'bar' ? Math.max(2, Math.floor(w * 0.15)) : w
+  // Same 1px bar as terminal-panel's renderCursor, so the trail matches the cursor's shape.
+  const cw = this.cursorStyle === 'bar' ? 1 : w
   // args[2] is the scrollback offset; the cursor isn't drawn while scrolled up.
   if (cursor.visible && !args[2])
     listeners.get(this.ctx.canvas)?.({ x: cursor.x * w, y: cursor.y * h, w: cw, h }, this.theme.cursor)

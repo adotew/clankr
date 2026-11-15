@@ -17,7 +17,11 @@ const renderer = CanvasRenderer.prototype as unknown as {
   measureFont(this: { fontSize: number; fontFamily: string }): Metrics
   resize(this: { ctx: CanvasRenderingContext2D; theme: { background: string } }, cols: number, rows: number): void
   render(this: { ctx: CanvasRenderingContext2D }, buffer: unknown, forceAll?: boolean, ...rest: unknown[]): void
-  renderCursor(this: { ctx: CanvasRenderingContext2D }, x: number, y: number): void
+  renderCursor(
+    this: { ctx: CanvasRenderingContext2D; metrics: Metrics; theme: { cursor: string }; cursorStyle: string },
+    x: number,
+    y: number,
+  ): void
 }
 const transparent = new WeakSet<CanvasRenderingContext2D>()
 
@@ -43,7 +47,11 @@ const idle = new WeakSet<HTMLCanvasElement>()
 const repaint = new WeakSet<HTMLCanvasElement>()
 const renderCursor = renderer.renderCursor
 renderer.renderCursor = function (x, y) {
-  if (!idle.has(this.ctx.canvas)) renderCursor.call(this, x, y)
+  if (idle.has(this.ctx.canvas)) return
+  if (this.cursorStyle !== 'bar') return renderCursor.call(this, x, y)
+  // A 1px bar like Ghostty's, instead of ghostty-web's 15% of a cell.
+  this.ctx.fillStyle = this.theme.cursor
+  this.ctx.fillRect(x * this.metrics.width, y * this.metrics.height, 1, this.metrics.height)
 }
 const render = renderer.render
 renderer.render = function (buffer, forceAll, ...rest) {
