@@ -535,7 +535,7 @@ export function App() {
               <div className="min-h-0 flex-1">
                 <MessageScroller>
                   <MessageScrollerViewport>
-                    <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-20 pb-6">
+                    <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-25 pb-6">
                       {turns.map((turn, i) => {
                         const last = i === turns.length - 1
                         return (
