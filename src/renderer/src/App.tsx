@@ -468,10 +468,10 @@ export function App() {
       />
       <div className="flex h-svh min-w-0 flex-row">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {/* Window drag strip; once the chat has messages, it fades them out under the thread title. */}
+          {/* Window drag strip; once the chat has messages, it fades them out under the thread title. Stops short of the 10px scrollbar so the thumb stays on top. */}
           <div
             className={cn(
-              'pointer-events-none absolute inset-x-0 top-0 z-10 h-28',
+              'pointer-events-none absolute top-0 right-2.5 left-0 z-10 h-28',
               turns.length > 0 && 'bg-linear-to-b from-background from-40% to-transparent',
             )}
           >
