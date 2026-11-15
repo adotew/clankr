@@ -499,6 +499,28 @@ export function App() {
         sections={[['Threads', threadRows]]}
       />
       <div className="flex h-svh min-w-0 flex-row">
+        {/* The latest threads, and the open one wherever it is in the list, as a column of their bots under the traffic lights. */}
+        <nav
+          aria-label="Threads"
+          className="relative flex shrink-0 flex-col items-center gap-1 px-2 pt-[54px] [-webkit-app-region:drag] fullscreen:pt-3 [&>*]:[-webkit-app-region:no-drag]"
+        >
+          {!active.id && turns.length > 0 && (
+            <ThreadBot bot={pending} state={stateOf(undefined)} label={`New thread${status(undefined)}`} selected disabled={busy} />
+          )}
+          {threads
+            .filter((t, i) => i < 8 || t.id === active.id)
+            .map((t) => (
+              <ThreadBot
+                key={t.id}
+                bot={botOf(t.id)}
+                state={stateOf(t.id)}
+                label={t.title + status(t.id)}
+                selected={t.id === active.id}
+                disabled={busy}
+                onClick={() => t.id !== active.id && openThread(t)}
+              />
+            ))}
+        </nav>
         <div className="relative flex min-w-0 flex-1 flex-col">
           {/* Window drag strip; once the chat has messages, it fades them out under the thread title. Stops short of the 10px scrollbar so the thumb stays on top. */}
           <div
@@ -508,7 +530,7 @@ export function App() {
             )}
           >
             {/* Height centers the title on the macOS traffic lights. */}
-            <div className="pointer-events-auto flex h-[54px] items-center gap-4 pr-4 pl-24 [-webkit-app-region:drag] fullscreen:pl-6">
+            <div className="pointer-events-auto flex h-[54px] items-center gap-4 pr-12 pl-12 [-webkit-app-region:drag] fullscreen:pl-6">
               {turns.length > 0 && (
                 <button
                   type="button"
@@ -519,25 +541,6 @@ export function App() {
                   {(active.id && threads.find((t) => t.id === active.id)?.title) || 'New thread'}
                 </button>
               )}
-              {/* The latest threads, and the open one wherever it is in the list, as a row of their bots. */}
-              <div className="ml-auto flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]">
-                {!active.id && turns.length > 0 && (
-                  <ThreadBot bot={pending} state={stateOf(undefined)} label={`New thread${status(undefined)}`} selected disabled={busy} />
-                )}
-                {threads
-                  .filter((t, i) => i < 8 || t.id === active.id)
-                  .map((t) => (
-                    <ThreadBot
-                      key={t.id}
-                      bot={botOf(t.id)}
-                      state={stateOf(t.id)}
-                      label={t.title + status(t.id)}
-                      selected={t.id === active.id}
-                      disabled={busy}
-                      onClick={() => t.id !== active.id && openThread(t)}
-                    />
-                  ))}
-              </div>
             </div>
           </div>
 
