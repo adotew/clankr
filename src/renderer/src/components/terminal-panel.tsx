@@ -70,7 +70,7 @@ renderer.measureFont = function () {
 // ghostty-web only accepts hex colors, so these mirror the app's neutral theme.
 const themes = {
   dark: {
-    background: '#0a0a0a',
+    background: '#141414',
     foreground: '#fafafa',
     cursor: '#fafafa',
     selectionBackground: '#404040',

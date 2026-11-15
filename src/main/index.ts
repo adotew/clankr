@@ -54,7 +54,7 @@ let win: BrowserWindow
 let settingsWin: BrowserWindow | undefined
 
 // Matches --background in styles.css, so resizing never flashes white before the page repaints.
-const background = () => (nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff')
+const background = () => (nativeTheme.shouldUseDarkColors ? '#141414' : '#ffffff')
 nativeTheme.on('updated', () => {
   for (const w of BrowserWindow.getAllWindows()) w.setBackgroundColor(background())
 })
