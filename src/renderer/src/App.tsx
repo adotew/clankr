@@ -15,8 +15,9 @@ import {
   MessageCircleIcon,
   ShieldQuestionIcon,
 } from 'lucide-react'
-import { BotAvatar } from 'bot-avatars'
+import { BotAvatar, type BotAvatarState } from 'bot-avatars'
 
+import { botFromId, randomBot, ThreadBot, type Bot } from '@/components/bots'
 import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
@@ -113,7 +114,17 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: boolean; waiting: boolean }) {
+function Reply({
+  replies,
+  streaming,
+  waiting,
+  bot,
+}: {
+  replies: Item[]
+  streaming: boolean
+  waiting: boolean
+  bot: Bot
+}) {
   const text = replies.flatMap((r) => (r.kind === 'assistant' ? [r.text] : [])).join('\n\n')
   const groups = groupReplies(replies)
   const last = replies.at(-1)
@@ -147,7 +158,7 @@ function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: bo
         {/* The agent at work: it hops while busy and looks around while it waits for an answer. */}
         {streaming && (
           <div role="status" className="flex items-center gap-2.5 text-sm">
-            <BotAvatar type="droid" size={24} state={waiting ? 'default' : 'working'} />
+            <BotAvatar {...bot} size={24} state={waiting ? 'default' : 'working'} />
             {thinking && (
               <span className="shimmer text-muted-foreground/60 [--shimmer-color:var(--color-foreground)] motion-reduce:shimmer-none">
                 Thinking…
@@ -378,11 +389,28 @@ export function App() {
   const project = active.folder !== undefined
   latest.current = { terminal, panelView, busy, project, newThread, cycleEffort }
 
+  // A new thread shows its bot before it has an ID; the bot is stored under the ID once the first turn returns one.
+  const [bots, setBots] = useState<Record<string, Bot>>(() => JSON.parse(localStorage.getItem('bots') ?? '{}'))
+  const [pending, setPending] = useState(() => randomBot(Object.values(bots).slice(-8)))
+  const botOf = (id: string | undefined) => (id ? (bots[id] ?? botFromId(id)) : pending)
+  // The open thread's bot works while its turn runs and looks around otherwise; the others sleep.
+  const stateOf = (id: string | undefined): BotAvatarState =>
+    id !== active.id ? 'sleeping' : busy && !asks.length ? 'working' : 'default'
+  const status = (id: string | undefined) =>
+    id !== active.id || !busy ? '' : asks.length ? ' · waiting for you' : ' · working'
+
   const send = async (text: string) => {
     setItems((xs) => [...xs, { kind: 'user', text }])
     setBusy(true)
+    const isNew = !active.id
     const r = await window.api.send(text, model, effort)
     if (r) setActive((a) => ({ ...a, id: r.sessionId, cwd: r.cwd, backend: r.backend }))
+    if (isNew && r?.sessionId) {
+      const next = { ...bots, [r.sessionId]: pending }
+      setBots(next)
+      localStorage.setItem('bots', JSON.stringify(next))
+      setPending(randomBot([pending, ...threads.slice(0, 7).map((t) => botOf(t.id))]))
+    }
     refreshThreads()
   }
 
@@ -406,7 +434,7 @@ export function App() {
     key: t.id,
     label: t.title,
     detail: [t.folder ?? 'Chat', t.backend === 'pi' && 'Pi'].filter(Boolean).join(' · '),
-    icon: t.folder ? <FolderIcon /> : <MessageCircleIcon />,
+    icon: <BotAvatar {...botOf(t.id)} state={stateOf(t.id)} size={20} />,
     disabled: busy,
     run: () => openThread(t),
     onRename: (title) => renameThread(t, title),
@@ -480,7 +508,7 @@ export function App() {
             )}
           >
             {/* Height centers the title on the macOS traffic lights. */}
-            <div className="pointer-events-auto flex h-[54px] items-center pr-12 pl-24 [-webkit-app-region:drag] fullscreen:pl-6">
+            <div className="pointer-events-auto flex h-[54px] items-center gap-4 pr-4 pl-24 [-webkit-app-region:drag] fullscreen:pl-6">
               {turns.length > 0 && (
                 <button
                   type="button"
@@ -491,6 +519,25 @@ export function App() {
                   {(active.id && threads.find((t) => t.id === active.id)?.title) || 'New thread'}
                 </button>
               )}
+              {/* The latest threads, and the open one wherever it is in the list, as a row of their bots. */}
+              <div className="ml-auto flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]">
+                {!active.id && turns.length > 0 && (
+                  <ThreadBot bot={pending} state={stateOf(undefined)} label={`New thread${status(undefined)}`} selected disabled={busy} />
+                )}
+                {threads
+                  .filter((t, i) => i < 8 || t.id === active.id)
+                  .map((t) => (
+                    <ThreadBot
+                      key={t.id}
+                      bot={botOf(t.id)}
+                      state={stateOf(t.id)}
+                      label={t.title + status(t.id)}
+                      selected={t.id === active.id}
+                      disabled={busy}
+                      onClick={() => t.id !== active.id && openThread(t)}
+                    />
+                  ))}
+              </div>
             </div>
           </div>
 
@@ -498,7 +545,7 @@ export function App() {
             // Empty thread: heading and prompt sit together in the middle.
             <div className="relative flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-16">
               <div className="relative flex flex-col items-center gap-3">
-                <BotAvatar type="droid" size={64} className="mb-3" />
+                <BotAvatar {...pending} size={64} className="mb-3" />
                 <h1 className="text-4xl tracking-tight text-foreground/85">What should we work on?</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -560,7 +607,12 @@ export function App() {
                               </Message>
                             )}
                             {(turn.replies.length > 0 || (last && busy)) && (
-                              <Reply replies={turn.replies} streaming={last && busy} waiting={asks.length > 0} />
+                              <Reply
+                                replies={turn.replies}
+                                streaming={last && busy}
+                                waiting={asks.length > 0}
+                                bot={botOf(active.id)}
+                              />
                             )}
                             {last &&
                               asks.map((a) => <AskCard key={a.id} ask={a} onReply={(answer) => reply(a.id, answer)} />)}
