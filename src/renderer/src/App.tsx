@@ -476,7 +476,7 @@ export function App() {
             )}
           >
             {/* Height centers the title on the macOS traffic lights. */}
-            <div className="pointer-events-auto flex h-[54px] items-center pr-6 pl-24 [-webkit-app-region:drag] fullscreen:pl-6">
+            <div className="pointer-events-auto flex h-[54px] items-center pr-12 pl-24 [-webkit-app-region:drag] fullscreen:pl-6">
               {turns.length > 0 && (
                 <button
                   type="button"

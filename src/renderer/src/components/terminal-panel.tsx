@@ -327,10 +327,12 @@ export function TerminalPanel({
   return (
     <aside
       ref={asideRef}
+      data-slot="side-panel"
+      data-open={visible || undefined}
       className={
         visible
-          // ml-11 leaves room for the 36px rail hanging off the left edge.
-          ? 'relative my-2 mr-2 ml-11 flex max-w-[70%] min-w-80 shrink-0'
+          // No left margin: the chat's scrollbar runs right along the panel edge, and the 36px rail overlaps the chat's top corner.
+          ? 'relative my-2 mr-2 flex max-w-[70%] min-w-80 shrink-0'
           : 'hidden'
       }
       style={{ width }}
@@ -352,7 +354,7 @@ export function TerminalPanel({
         className="left-0"
       />
       {/* The rail is a tab joined to the content, with a concave corner filling the gap beneath it. */}
-      <div className="absolute top-0 right-full flex flex-col items-center gap-1 rounded-l-2xl bg-sidebar/50 py-2 pl-2 backdrop-blur-xl [-webkit-app-region:drag]">
+      <div className="absolute top-0 right-full z-20 flex flex-col items-center gap-1 rounded-l-2xl bg-sidebar/50 py-2 pl-2 backdrop-blur-xl [-webkit-app-region:drag]">
         <div className="absolute top-full right-0 size-4 bg-sidebar/50 backdrop-blur-xl [mask-image:radial-gradient(circle_at_0_100%,transparent_16px,black_16.5px)]" />
         {(['terminal', 'diff', 'browser'] as const).map((v) => (
           <button

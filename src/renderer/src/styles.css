@@ -180,6 +180,12 @@ body.resizing webview {
 [data-slot='message-scroller-viewport']::-webkit-scrollbar-track {
   margin-block: 16px;
 }
+/* With the side panel open, the thumb runs along the panel's edge: from below its tab rail (8px inset + 108px rail +
+   16px concave corner) down to where its bottom corner rounds off (8px inset + 16px radius). */
+:has(> [data-slot='side-panel'][data-open]) > * [data-slot='message-scroller-viewport']::-webkit-scrollbar-track {
+  margin-top: 132px;
+  margin-bottom: 24px;
+}
 /* Chat replies, tuned for long reads on a dark background: softer body text, bright emphasis, calmer links and lists. */
 .reading {
   line-height: 1.65;
