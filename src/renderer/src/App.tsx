@@ -478,9 +478,14 @@ export function App() {
             {/* Height centers the title on the macOS traffic lights. */}
             <div className="pointer-events-auto flex h-[54px] items-center pr-6 pl-24 [-webkit-app-region:drag] fullscreen:pl-6">
               {turns.length > 0 && (
-                <span className="truncate text-sm font-medium text-foreground/80">
+                <button
+                  type="button"
+                  onClick={() => setPalette('threads')}
+                  title="Switch thread (⌘P)"
+                  className="-mx-2 min-w-0 truncate rounded-lg px-2 py-1 text-sm font-medium text-foreground/80 transition-colors outline-none [-webkit-app-region:no-drag] hover:bg-foreground/10 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
                   {(active.id && threads.find((t) => t.id === active.id)?.title) || 'New thread'}
-                </span>
+                </button>
               )}
             </div>
           </div>
