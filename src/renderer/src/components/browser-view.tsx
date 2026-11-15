@@ -4,9 +4,14 @@ import { ArrowLeftIcon, ArrowRightIcon, RotateCwIcon } from 'lucide-react'
 const toUrl = (s: string) =>
   /^[a-z]+:/i.test(s) ? s : (/^(localhost|127\.|\[::1\])/.test(s) ? 'http://' : 'https://') + s
 
-export function BrowserView() {
+// Each thread remembers its own page.
+const urls = (): Record<string, string> => JSON.parse(localStorage.getItem('browserUrls') ?? '{}')
+const saveUrl = (thread: string, url: string) => localStorage.setItem('browserUrls', JSON.stringify({ ...urls(), [thread]: url }))
+
+export function BrowserView({ thread }: { thread?: string }) {
   const ref = useRef<Electron.WebviewTag>(null)
-  const [src, setSrc] = useState(() => localStorage.getItem('browserUrl') ?? '')
+  const [src, setSrc] = useState(() => (thread && urls()[thread]) || '')
+  const url = useRef(src)
   const [address, setAddress] = useState(src)
   const loaded = src !== ''
   const [nav, setNav] = useState({ back: false, forward: false })
@@ -15,10 +20,10 @@ export function BrowserView() {
     const wv = ref.current
     if (!wv) return
     const onNavigate = () => {
-      const url = wv.getURL()
-      setAddress(url)
+      url.current = wv.getURL()
+      setAddress(url.current)
       setNav({ back: wv.canGoBack(), forward: wv.canGoForward() })
-      localStorage.setItem('browserUrl', url)
+      if (thread) saveUrl(thread, url.current)
     }
     wv.addEventListener('did-navigate', onNavigate)
     wv.addEventListener('did-navigate-in-page', onNavigate)
@@ -27,7 +32,12 @@ export function BrowserView() {
       wv.removeEventListener('did-navigate-in-page', onNavigate)
     }
     // The webview mounts with the first URL.
-  }, [loaded])
+  }, [loaded, thread])
+
+  // A new thread gets its id on the first send; the page opened before that becomes its page.
+  useEffect(() => {
+    if (thread && url.current) saveUrl(thread, url.current)
+  }, [thread])
 
   const button =
     'rounded-md p-1 text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground [&_svg]:size-3.5'

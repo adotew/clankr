@@ -587,6 +587,7 @@ export function App() {
           <TerminalPanel
             key={active.cwd}
             cwd={active.cwd}
+            thread={active.id}
             visible={terminal === 'open'}
             view={panelView}
             onView={setPanelView}

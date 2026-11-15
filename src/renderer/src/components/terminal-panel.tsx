@@ -252,12 +252,14 @@ function neighbour(panes: [number, Rect][], active: number, [dx, dy]: readonly [
 
 export function TerminalPanel({
   cwd,
+  thread,
   visible,
   view,
   onView,
   onExit,
 }: {
   cwd?: string
+  thread?: string
   visible: boolean
   view: PanelView
   onView: (view: PanelView) => void
@@ -266,6 +268,12 @@ export function TerminalPanel({
   const asideRef = useRef<HTMLElement>(null)
   const browserOpened = useRef(false)
   if (view === 'browser') browserOpened.current = true
+  // A fresh browser per thread, except when a new thread gets its id on the first send.
+  const browser = useRef({ key: 0, thread })
+  if (browser.current.thread !== thread) {
+    if (browser.current.thread !== undefined) browser.current.key++
+    browser.current.thread = thread
+  }
   const [width, setWidth] = useStoredWidth('terminalWidth', Math.round(innerWidth * 0.42))
   const [layout, setLayout] = useState<Layout | undefined>({ pane: 0 })
   const [active, setActive] = useState(0)
@@ -388,7 +396,7 @@ export function TerminalPanel({
         {/* Mounted on first open and then kept, so switching tabs doesn't reload the page. */}
         {(view === 'browser' || browserOpened.current) && (
           <div className={cn('absolute inset-0 flex flex-col', view !== 'browser' && 'invisible')}>
-            <BrowserView />
+            <BrowserView key={browser.current.key} thread={thread} />
           </div>
         )}
       </div>
