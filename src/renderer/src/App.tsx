@@ -113,17 +113,7 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function Reply({
-  replies,
-  streaming,
-  waiting,
-  bot,
-}: {
-  replies: Item[]
-  streaming: boolean
-  waiting: boolean
-  bot: Bot
-}) {
+function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: boolean; waiting: boolean }) {
   const text = replies.flatMap((r) => (r.kind === 'assistant' ? [r.text] : [])).join('\n\n')
   const groups = groupReplies(replies)
   const last = replies.at(-1)
@@ -154,16 +144,13 @@ function Reply({
             </Markdown>
           )
         })}
-        {/* The agent at work: it hops while busy and looks around while it waits for an answer. */}
-        {streaming && (
-          <div role="status" className="flex items-center gap-2.5 text-sm">
-            <BotAvatar {...bot} size={24} state={waiting ? 'default' : 'working'} />
-            {thinking && (
-              <span className="shimmer text-muted-foreground/60 [--shimmer-color:var(--color-foreground)] motion-reduce:shimmer-none">
-                Thinking…
-              </span>
-            )}
-          </div>
+        {thinking && (
+          <p
+            role="status"
+            className="shimmer text-sm text-muted-foreground/60 [--shimmer-color:var(--color-foreground)] motion-reduce:shimmer-none"
+          >
+            Thinking…
+          </p>
         )}
         {!streaming && text && (
           <MessageFooter className="px-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
@@ -390,26 +377,42 @@ export function App() {
 
   // A new thread shows its bot before it has an ID; the bot is stored under the ID once the first turn returns one.
   const [bots, setBots] = useState<Record<string, Bot>>(() => JSON.parse(localStorage.getItem('bots') ?? '{}'))
-  const [pending, setPending] = useState(() => randomBot(Object.values(bots).slice(-8)))
-  const botOf = (id: string | undefined) => (id ? (bots[id] ?? botFromId(id)) : pending)
+  // `key` is the new thread's dock slot; the thread keeps it once it has an ID, so the slot never remounts.
+  const [pending, setPending] = useState(() => ({ key: crypto.randomUUID(), bot: randomBot(Object.values(bots).slice(-8)) }))
+  const dockKeys = useRef(new Map<string, string>())
+  const keyOf = (id: string) => dockKeys.current.get(id) ?? id
+  const botOf = (id: string | undefined) => (id ? (bots[id] ?? botFromId(id)) : pending.bot)
+  // Where the empty thread's large bot was when the first prompt went out; its dock slot flies in from there.
+  const hero = useRef<HTMLDivElement>(null)
+  const flight = useRef<DOMRect>(undefined)
   // The open thread's bot works while its turn runs and looks around otherwise; the others sleep.
   const stateOf = (id: string | undefined): BotAvatarState =>
     id !== active.id ? 'sleeping' : busy && !asks.length ? 'working' : 'default'
   const status = (id: string | undefined) =>
     id !== active.id || !busy ? undefined : asks.length ? 'waiting for you' : 'working'
+  const entry = (id: string | undefined) => ({
+    bot: botOf(id),
+    state: stateOf(id),
+    status: status(id),
+    waiting: id === active.id && busy && asks.length > 0,
+    selected: id === active.id,
+  })
 
   const send = async (text: string) => {
+    flight.current = hero.current?.getBoundingClientRect()
     setItems((xs) => [...xs, { kind: 'user', text }])
     setBusy(true)
     const isNew = !active.id
     const r = await window.api.send(text, model, effort)
-    if (r) setActive((a) => ({ ...a, id: r.sessionId, cwd: r.cwd, backend: r.backend }))
     if (isNew && r?.sessionId) {
-      const next = { ...bots, [r.sessionId]: pending }
+      dockKeys.current.set(r.sessionId, pending.key)
+      const next = { ...bots, [r.sessionId]: pending.bot }
       setBots(next)
       localStorage.setItem('bots', JSON.stringify(next))
-      setPending(randomBot([pending, ...threads.slice(0, 7).map((t) => botOf(t.id))]))
+      const taken = [pending.bot, ...threads.slice(0, 7).map((t) => botOf(t.id))]
+      setPending({ key: crypto.randomUUID(), bot: randomBot(taken) })
     }
+    if (r) setActive((a) => ({ ...a, id: r.sessionId, cwd: r.cwd, backend: r.backend }))
     refreshThreads()
   }
 
@@ -478,32 +481,28 @@ export function App() {
         <Roster
           disabled={busy}
           entries={[
-            ...(!active.id && turns.length > 0
-              ? [
+            ...(threads.some((t) => t.id === active.id)
+              ? []
+              : [
                   {
-                    key: 'new',
-                    bot: pending,
-                    state: stateOf(undefined),
+                    ...entry(active.id),
+                    key: active.id ? keyOf(active.id) : pending.key,
                     title: 'New thread',
                     folder: active.folder,
                     branch: threads.find((t) => t.cwd === active.cwd)?.branch,
-                    status: status(undefined),
-                    selected: true,
+                    away: turns.length === 0,
+                    flyFrom: flight.current,
                   },
-                ]
-              : []),
+                ]),
             ...threads
               .filter((t, i) => i < 8 || t.id === active.id)
               .map((t) => ({
-                key: t.id,
-                bot: botOf(t.id),
-                state: stateOf(t.id),
+                ...entry(t.id),
+                key: keyOf(t.id),
                 title: t.title,
                 folder: t.folder,
                 branch: t.branch,
-                status: status(t.id),
-                selected: t.id === active.id,
-                onClick: () => t.id !== active.id && openThread(t),
+                onClick: t.id === active.id ? undefined : () => openThread(t),
               })),
           ]}
         />
@@ -534,7 +533,10 @@ export function App() {
             // Empty thread: heading and prompt sit together in the middle.
             <div className="relative flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-16">
               <div className="relative flex flex-col items-center gap-3">
-                <BotAvatar {...pending} size={64} className="mb-3" />
+                {/* The new thread's dock bot, shown large here; it flies to its dock slot with the first prompt. */}
+                <div ref={hero} className="mb-3">
+                  <BotAvatar {...pending.bot} size={64} style={{ display: 'block' }} />
+                </div>
                 <h1 className="text-4xl tracking-tight text-foreground/85">What should we work on?</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -600,7 +602,6 @@ export function App() {
                                 replies={turn.replies}
                                 streaming={last && busy}
                                 waiting={asks.length > 0}
-                                bot={botOf(active.id)}
                               />
                             )}
                             {last &&

@@ -1,3 +1,4 @@
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { BotAvatar, botAvatarPalette, botAvatarTypes, type BotAvatarState, type BotAvatarType } from 'bot-avatars'
 import { FolderIcon, GitBranchIcon } from 'lucide-react'
 
@@ -26,6 +27,8 @@ export function randomBot(taken: Bot[]): Bot {
 }
 
 // `folder` and `branch` are set for project threads; `status` says what a busy thread's bot is doing.
+// `away` leaves the slot empty while the bot is shown large on the empty thread; when it turns false the bot
+// flies in from `flyFrom`. Without `onClick`, a click pokes the bot instead.
 export type RosterEntry = {
   key: string
   bot: Bot
@@ -34,12 +37,15 @@ export type RosterEntry = {
   folder?: string
   branch?: string
   status?: string
+  waiting?: boolean
   selected: boolean
+  away?: boolean
+  flyFrom?: DOMRect
   onClick?: () => void
 }
 
 // Thread bots in a vertical Magic UI dock: the ones near the pointer swell, the hovered one shows its thread.
-// Clicks are ignored while `disabled`, but the dock still swells so it can be read mid-turn.
+// While `disabled`, clicks poke instead of switching, but the dock still swells so it can be read mid-turn.
 export function Roster({ entries, disabled }: { entries: RosterEntry[]; disabled: boolean }) {
   if (!entries.length) return null
   return (
@@ -52,31 +58,70 @@ export function Roster({ entries, disabled }: { entries: RosterEntry[]; disabled
             // A size container, so the bot can fill whatever size the dock springs the icon to.
             className={cn('group relative [container-type:size]', entry.selected ? 'bg-foreground/10' : 'hover:bg-foreground/5')}
           >
-            {/* Drawn at the icon's live size, so it stays sharp as it swells. */}
-            <BotAvatar {...entry.bot} state={entry.state} size="100cqw" style={{ display: 'block' }} />
-            <button
-              type="button"
-              aria-label={[entry.title, entry.folder, entry.branch, entry.status].filter(Boolean).join(', ')}
-              aria-current={entry.selected || undefined}
-              aria-disabled={disabled || undefined}
-              onClick={() => !disabled && entry.onClick?.()}
-              className="absolute inset-0 rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            />
-            <span className="pointer-events-none absolute top-1/2 left-full ml-2 flex -translate-y-1/2 flex-col items-start rounded-lg bg-popover/90 px-2.5 py-1.5 whitespace-nowrap text-popover-foreground opacity-0 shadow-lg ring-1 ring-foreground/10 backdrop-blur-xl transition-opacity duration-150 group-hover:opacity-100 group-has-focus-visible:opacity-100">
-              <span className="max-w-72 truncate text-sm font-medium">{entry.title}</span>
-              {(entry.folder || entry.status) && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  {entry.folder && <FolderIcon className="size-3" />}
-                  {entry.folder}
-                  {entry.branch && <GitBranchIcon className="ml-1 size-3" />}
-                  {entry.branch}
-                  {entry.status && (entry.folder ? `· ${entry.status}` : entry.status)}
-                </span>
-              )}
-            </span>
+            <RosterBot entry={entry} disabled={disabled} />
           </DockIcon>
         ))}
       </Dock>
     </nav>
+  )
+}
+
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+
+function RosterBot({ entry, disabled }: { entry: RosterEntry; disabled: boolean }) {
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const body = useRef<HTMLSpanElement>(null)
+  // BotAvatar hops when its canvas is clicked, and the button lies over the canvas.
+  const poke = () => canvas.current?.click()
+
+  // Like a dock icon that needs attention: a hop now and every few seconds until answered.
+  useEffect(() => {
+    if (!entry.waiting) return
+    poke()
+    const timer = setInterval(poke, 5000)
+    return () => clearInterval(timer)
+  }, [entry.waiting])
+
+  // Lands from the empty thread: start where the large bot was and settle into the slot.
+  useLayoutEffect(() => {
+    const from = entry.flyFrom
+    if (entry.away || !from || !body.current || reducedMotion.matches) return
+    const to = body.current.getBoundingClientRect()
+    const dx = from.left + from.width / 2 - (to.left + to.width / 2)
+    const dy = from.top + from.height / 2 - (to.top + to.height / 2)
+    body.current.animate(
+      [{ transform: `translate(${dx}px, ${dy}px) scale(${from.width / to.width})` }, { transform: 'none' }],
+      { duration: 550, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
+    )
+  }, [entry.away])
+
+  return (
+    <>
+      {!entry.away && (
+        <span ref={body} className="block">
+          {/* Drawn at the icon's live size, so it stays sharp as it swells. */}
+          <BotAvatar ref={canvas} {...entry.bot} state={entry.state} size="100cqw" style={{ display: 'block' }} />
+        </span>
+      )}
+      <button
+        type="button"
+        aria-label={[entry.title, entry.folder, entry.branch, entry.status].filter(Boolean).join(', ')}
+        aria-current={entry.selected || undefined}
+        onClick={() => (entry.onClick && !disabled ? entry.onClick() : poke())}
+        className="absolute inset-0 rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      />
+      <span className="pointer-events-none absolute top-1/2 left-full ml-2 flex -translate-y-1/2 flex-col items-start rounded-lg bg-popover/90 px-2.5 py-1.5 whitespace-nowrap text-popover-foreground opacity-0 shadow-lg ring-1 ring-foreground/10 backdrop-blur-xl transition-opacity duration-150 group-hover:opacity-100 group-has-focus-visible:opacity-100">
+        <span className="max-w-72 truncate text-sm font-medium">{entry.title}</span>
+        {(entry.folder || entry.status) && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            {entry.folder && <FolderIcon className="size-3" />}
+            {entry.folder}
+            {entry.branch && <GitBranchIcon className="ml-1 size-3" />}
+            {entry.branch}
+            {entry.status && (entry.folder ? `· ${entry.status}` : entry.status)}
+          </span>
+        )}
+      </span>
+    </>
   )
 }
