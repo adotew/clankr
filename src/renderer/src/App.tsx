@@ -470,7 +470,7 @@ export function App() {
             turns.length > 0 && 'opacity-0',
           )}
           onTransitionEnd={() => turns.length > 0 && setBackground(false)}
-          colors={['#1e3fd8', '#f6f8ff', '#a5d8ff', '#38bdf8']}
+          colors={['#1e3fd8', '#8fa6f0', '#5b8fe0', '#2a8fd0']}
           shape="horizon"
           characters=" 01"
           cellSize={12}
