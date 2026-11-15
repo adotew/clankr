@@ -8,7 +8,6 @@ import {
   FolderOpenIcon,
   GitCompareIcon,
   GlobeIcon,
-  LoaderCircleIcon,
   MessagesSquareIcon,
   PlusIcon,
   SettingsIcon,
@@ -166,31 +165,6 @@ function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: bo
 type Active = { id?: string; cwd?: string; folder?: string; backend?: Backend }
 
 const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
-
-// Window drag strip showing the current thread; clicking it opens the thread switcher.
-function TitleBar({ title, folder, busy, onClick }: { title: string; folder?: string; busy: boolean; onClick: () => void }) {
-  return (
-    <div className="absolute inset-x-0 top-0 z-10 h-11 [-webkit-app-region:drag]">
-      {/* Left padding leaves room for the macOS traffic lights. */}
-      <div className="absolute top-2 left-2 flex h-9 items-center rounded-2xl bg-sidebar/50 pr-1 pl-20 shadow-sm ring-1 ring-sidebar-border backdrop-blur-xl fullscreen:pl-1">
-        <button
-          type="button"
-          onClick={onClick}
-          title="Switch thread (⌘P)"
-          className="flex h-7 max-w-96 items-center gap-1.5 rounded-lg px-2 text-sm text-foreground/80 transition-colors outline-none [-webkit-app-region:no-drag] hover:bg-foreground/10 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          <span className="truncate font-medium">{title}</span>
-          <span className="shrink-0 text-muted-foreground">· {folder ?? 'Chat'}</span>
-          {busy ? (
-            <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
-          ) : (
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
-        </button>
-      </div>
-    </div>
-  )
-}
 
 // Claude permission requests (yes/no) and Pi extension dialogs (yes/no, a choice, or free text).
 function AskCard({ ask, onReply }: { ask: Ask; onReply: (answer: Answer) => void }) {
@@ -494,12 +468,22 @@ export function App() {
       />
       <div className="flex h-svh min-w-0 flex-row">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <TitleBar
-            title={(active.id && threads.find((t) => t.id === active.id)?.title) || 'New thread'}
-            folder={active.folder}
-            busy={busy}
-            onClick={() => setPalette('threads')}
-          />
+          {/* Window drag strip; once the chat has messages, it fades them out under the thread title. */}
+          <div
+            className={cn(
+              'pointer-events-none absolute inset-x-0 top-0 z-10 h-28',
+              turns.length > 0 && 'bg-linear-to-b from-background from-40% to-transparent',
+            )}
+          >
+            {/* Height centers the title on the macOS traffic lights. */}
+            <div className="pointer-events-auto flex h-[54px] items-center pr-6 pl-24 [-webkit-app-region:drag] fullscreen:pl-6">
+              {turns.length > 0 && (
+                <span className="truncate text-sm font-medium text-foreground/80">
+                  {(active.id && threads.find((t) => t.id === active.id)?.title) || 'New thread'}
+                </span>
+              )}
+            </div>
+          </div>
 
           {turns.length === 0 ? (
             // Empty thread: heading and prompt sit together in the middle.
@@ -546,7 +530,7 @@ export function App() {
               <div className="min-h-0 flex-1">
                 <MessageScroller>
                   <MessageScrollerViewport>
-                    <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-12 pb-6">
+                    <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-3xl px-6 pt-20 pb-6">
                       {turns.map((turn, i) => {
                         const last = i === turns.length - 1
                         return (
