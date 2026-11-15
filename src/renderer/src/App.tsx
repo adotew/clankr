@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -45,6 +45,13 @@ import type { AgentEvent, Backend, Model, Thread } from '../../shared'
 type Item = { kind: 'user' | 'assistant' | 'error'; text: string } | ToolItem
 type Ask = Extract<AgentEvent, { kind: 'ask' }>
 type Answer = boolean | string | undefined
+
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
+const useDark = () =>
+  useSyncExternalStore(
+    (cb) => (darkQuery.addEventListener('change', cb), () => darkQuery.removeEventListener('change', cb)),
+    () => darkQuery.matches,
+  )
 
 const backendOf = (model: string) => model.split(':')[0] as Backend
 // One user prompt and everything the agent did in reply.
@@ -442,6 +449,7 @@ export function App() {
   }))
 
   const turns = toTurns(items)
+  const dark = useDark()
   const [background, setBackground] = useState(true)
   if (turns.length === 0 && !background) setBackground(true)
 
@@ -470,7 +478,8 @@ export function App() {
             turns.length > 0 && 'opacity-0',
           )}
           onTransitionEnd={() => turns.length > 0 && setBackground(false)}
-          colors={['#1e3fd8', '#8fa6f0', '#5b8fe0', '#2a8fd0']}
+          // Neutral greys, so the bots carry the colour.
+          colors={dark ? ['#3a3a3a', '#9a9a9a', '#6a6a6a', '#505050'] : ['#d4d4d4', '#fafafa', '#e8e8e8', '#dedede']}
           shape="horizon"
           characters=" 01"
           cellSize={12}
