@@ -9,6 +9,7 @@ export default defineConfig({
   preload: { build: { rolldownOptions: { output: { format: 'cjs', entryFileNames: '[name].cjs' } } } },
   renderer: {
     plugins: [react(), tailwindcss()],
-    resolve: { alias: { '@': resolve(import.meta.dirname, 'src/renderer/src') } },
+    // bot-avatars is linked from ../bots, which has its own React; use the app's copy.
+    resolve: { alias: { '@': resolve(import.meta.dirname, 'src/renderer/src') }, dedupe: ['react', 'react-dom'] },
   },
 })

@@ -23,6 +23,7 @@
     "@lydell/node-pty": "^1.2.0-beta.18",
     "@pierre/diffs": "^1.6.4",
     "@shadcn/react": "^0.3.1",
+    "bot-avatars": "file:../bots",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "ghostty-web": "^0.4.0",

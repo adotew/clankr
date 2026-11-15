@@ -15,6 +15,7 @@ import {
   MessageCircleIcon,
   ShieldQuestionIcon,
 } from 'lucide-react'
+import { BotAvatar } from 'bot-avatars'
 
 import GradientASCII from '@/components/gradient-ascii/GradientASCII'
 import { Markdown } from '@/components/markdown'
@@ -143,13 +144,16 @@ function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: bo
             </Markdown>
           )
         })}
-        {thinking && (
-          <p
-            role="status"
-            className="shimmer text-sm text-muted-foreground/60 [--shimmer-color:var(--color-foreground)] motion-reduce:shimmer-none"
-          >
-            Thinking…
-          </p>
+        {/* The agent at work: it hops while busy and looks around while it waits for an answer. */}
+        {streaming && (
+          <div role="status" className="flex items-center gap-2.5 text-sm">
+            <BotAvatar type="droid" size={24} state={waiting ? 'default' : 'working'} />
+            {thinking && (
+              <span className="shimmer text-muted-foreground/60 [--shimmer-color:var(--color-foreground)] motion-reduce:shimmer-none">
+                Thinking…
+              </span>
+            )}
+          </div>
         )}
         {!streaming && text && (
           <MessageFooter className="px-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
@@ -494,6 +498,7 @@ export function App() {
             // Empty thread: heading and prompt sit together in the middle.
             <div className="relative flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-16">
               <div className="relative flex flex-col items-center gap-3">
+                <BotAvatar type="droid" size={64} className="mb-3" />
                 <h1 className="text-4xl tracking-tight text-foreground/85">What should we work on?</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger
