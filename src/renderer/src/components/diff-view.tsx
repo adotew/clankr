@@ -20,7 +20,8 @@ const stacked = { ...base, diffStyle: 'unified' } as const
 // Below this width, side-by-side columns get too narrow to read.
 const SPLIT_MIN_WIDTH = 900
 
-// Uncommitted changes in `cwd`; refreshes when shown and whenever the agent finishes a turn.
+// Uncommitted changes in `cwd`; refreshes when shown, whenever the agent finishes a turn, and every few seconds
+// while shown to catch edits from the terminal, an editor, or mid-turn tool calls.
 export function DiffView({ cwd, visible }: { cwd?: string; visible: boolean }) {
   const [patch, setPatch] = useState<string | undefined | null>(null)
   const [wide, setWide] = useState(false)
@@ -41,9 +42,12 @@ export function DiffView({ cwd, visible }: { cwd?: string; visible: boolean }) {
       )
     load()
     const off = window.api.onEvent((e) => e.kind === 'done' && load())
+    // shortcut: polls `git diff`; switch to a file watcher in main if this gets slow on big repos.
+    const timer = setInterval(load, 2000)
     return () => {
       stale = true
       off()
+      clearInterval(timer)
     }
   }, [cwd, visible])
 
