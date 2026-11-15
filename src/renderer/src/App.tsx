@@ -152,7 +152,7 @@ function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: bo
           </p>
         )}
         {!streaming && text && (
-          <MessageFooter className="px-0">
+          <MessageFooter className="px-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
             <CopyButton text={text} />
           </MessageFooter>
         )}

@@ -55,6 +55,14 @@ function describe(input: Record<string, unknown>) {
   return typeof value === 'string' ? value : ''
 }
 
+// What the trace line shows: commands without a leading `cd <dir> &&`, files by name only.
+function label(input: Record<string, unknown>) {
+  const text = describe(input)
+  if (typeof input.command === 'string') return text.replace(/^cd\s+\S+\s*&&\s*/, '')
+  if (typeof (input.file_path ?? input.path) === 'string') return text.split('/').pop() || text
+  return text
+}
+
 // Claude edits carry old_string/new_string; Pi edits carry a list of { oldText, newText }.
 function edits(input: Record<string, unknown>): [string, string][] {
   const { old_string, new_string } = input
@@ -106,9 +114,9 @@ export function ToolStep({ tool, running }: { tool: ToolItem; running: boolean }
       <TraceCollapsibleTrigger disabled={pending}>
         <TraceLine status={failed ? 'error' : pending ? (running ? 'running' : 'pending') : undefined}>
           <TraceIcon>{pending && running ? <LoaderCircleIcon className="animate-spin" /> : <Icon />}</TraceIcon>
-          <TraceTitle>
+          <TraceTitle title={describe(tool.input)}>
             <span className="font-medium">{name}</span>{' '}
-            <span className="font-mono text-xs">{describe(tool.input)}</span>
+            <span className="font-mono text-xs text-muted-foreground/70">{label(tool.input)}</span>
           </TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>

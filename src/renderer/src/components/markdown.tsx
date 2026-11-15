@@ -7,9 +7,7 @@ import {
   CodeBlockActions,
   CodeBlockContent,
   CodeBlockCopyButton,
-  CodeBlockHeader,
   CodeBlockLine,
-  CodeBlockTitle,
 } from '@/components/ui/code-block'
 
 function MarkdownCodeBlock({ code, language }: { code: string; language: string }) {
@@ -19,12 +17,10 @@ function MarkdownCodeBlock({ code, language }: { code: string; language: string 
 
   return (
     <CodeBlock size="sm">
-      <CodeBlockHeader>
-        <CodeBlockTitle>{language || 'text'}</CodeBlockTitle>
-        <CodeBlockActions>
-          <CodeBlockCopyButton value={code} disabled={incomplete} />
-        </CodeBlockActions>
-      </CodeBlockHeader>
+      {/* Floats top-right and shows on hover, instead of a header row. */}
+      <CodeBlockActions>
+        <CodeBlockCopyButton value={code} disabled={incomplete} />
+      </CodeBlockActions>
       <CodeBlockContent>
         {lines.map((line, index) => (
           <CodeBlockLine key={index}>{line}</CodeBlockLine>
@@ -39,7 +35,7 @@ function MarkdownCode({ node: _node, className, children, ...props }: React.Comp
   // Streamdown marks fenced code with data-block. Everything else is inline.
   if (!('data-block' in props)) {
     return (
-      <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.9em]" {...props}>
+      <code className="rounded-sm bg-foreground/[0.06] px-1 py-0.5 font-mono text-[0.875em] text-foreground" {...props}>
         {children}
       </code>
     )
@@ -56,7 +52,7 @@ const components = { code: MarkdownCode }
 
 export function Markdown({ children, streaming }: { children: string; streaming?: boolean }) {
   return (
-    <Streamdown controls={false} components={components} isAnimating={streaming}>
+    <Streamdown className="reading" controls={false} components={components} isAnimating={streaming}>
       {children}
     </Streamdown>
   )

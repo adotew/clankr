@@ -180,3 +180,41 @@ body.resizing webview {
 [data-slot='message-scroller-viewport']::-webkit-scrollbar-track {
   margin-block: 16px;
 }
+/* Chat replies, tuned for long reads on a dark background: softer body text, bright emphasis, calmer links and lists. */
+.reading {
+  line-height: 1.65;
+  color: color-mix(in oklch, var(--foreground) 85%, transparent);
+}
+.reading :is([data-streamdown='strong'], h1, h2, h3, h4, h5, h6) {
+  color: var(--foreground);
+}
+.reading :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 1.75em;
+  margin-bottom: 0;
+  font-size: 1em;
+  line-height: 1.4;
+}
+.reading :is(h1, h2) {
+  font-size: 1.125em;
+}
+.reading :is(ul, ol) {
+  list-style-position: outside;
+  padding-left: 1.25em;
+}
+.reading li {
+  padding-block: 0.125em;
+}
+.reading li::marker {
+  color: var(--muted-foreground);
+}
+.reading [data-streamdown='link'] {
+  font-weight: inherit;
+  text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+  text-underline-offset: 3px;
+}
+.dark .reading [data-streamdown='link'] {
+  color: #a5d8ff;
+}
+.reading [data-streamdown='link']:hover {
+  text-decoration-color: currentColor;
+}
