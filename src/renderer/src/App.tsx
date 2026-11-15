@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { BotAvatar, type BotAvatarState } from 'bot-avatars'
 
-import { botFromId, randomBot, ThreadBot, type Bot } from '@/components/bots'
+import { botFromId, randomBot, Roster, type Bot } from '@/components/bots'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { PromptInput } from '@/components/prompt-input'
@@ -396,7 +396,7 @@ export function App() {
   const stateOf = (id: string | undefined): BotAvatarState =>
     id !== active.id ? 'sleeping' : busy && !asks.length ? 'working' : 'default'
   const status = (id: string | undefined) =>
-    id !== active.id || !busy ? '' : asks.length ? ' · waiting for you' : ' · working'
+    id !== active.id || !busy ? undefined : asks.length ? 'waiting for you' : 'working'
 
   const send = async (text: string) => {
     setItems((xs) => [...xs, { kind: 'user', text }])
@@ -474,28 +474,37 @@ export function App() {
         sections={[['Threads', threadRows]]}
       />
       <div className="flex h-svh min-w-0 flex-row">
-        {/* The latest threads, and the open one wherever it is in the list, as a column of their bots under the traffic lights. */}
-        <nav
-          aria-label="Threads"
-          className="relative flex shrink-0 flex-col items-center gap-1 px-2 pt-[54px] [-webkit-app-region:drag] fullscreen:pt-3 [&>*]:[-webkit-app-region:no-drag]"
-        >
-          {!active.id && turns.length > 0 && (
-            <ThreadBot bot={pending} state={stateOf(undefined)} label={`New thread${status(undefined)}`} selected disabled={busy} />
-          )}
-          {threads
-            .filter((t, i) => i < 8 || t.id === active.id)
-            .map((t) => (
-              <ThreadBot
-                key={t.id}
-                bot={botOf(t.id)}
-                state={stateOf(t.id)}
-                label={t.title + status(t.id)}
-                selected={t.id === active.id}
-                disabled={busy}
-                onClick={() => t.id !== active.id && openThread(t)}
-              />
-            ))}
-        </nav>
+        {/* The latest threads, and the open one wherever it is in the list. */}
+        <Roster
+          disabled={busy}
+          entries={[
+            ...(!active.id && turns.length > 0
+              ? [
+                  {
+                    key: 'new',
+                    bot: pending,
+                    state: stateOf(undefined),
+                    title: 'New thread',
+                    folder: active.folder,
+                    status: status(undefined),
+                    selected: true,
+                  },
+                ]
+              : []),
+            ...threads
+              .filter((t, i) => i < 8 || t.id === active.id)
+              .map((t) => ({
+                key: t.id,
+                bot: botOf(t.id),
+                state: stateOf(t.id),
+                title: t.title,
+                folder: t.folder,
+                status: status(t.id),
+                selected: t.id === active.id,
+                onClick: () => t.id !== active.id && openThread(t),
+              })),
+          ]}
+        />
         <div className="relative flex min-w-0 flex-1 flex-col">
           {/* Window drag strip; once the chat has messages, it fades them out under the thread title. Stops short of the 10px scrollbar so the thumb stays on top. */}
           <div
