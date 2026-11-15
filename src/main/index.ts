@@ -23,7 +23,7 @@ import { modified, piEfforts, piModels, PiRpc, piVersion, readPiSession, shellEn
 // Marks sessions created by this app so other Claude Code sessions stay out of the sidebar.
 const TAG = 'clankr'
 
-// "No project" threads each get an empty folder here, so they run without any project context
+// "Chat" threads each get an empty folder here, so they run without any project context
 // and can be deleted without touching anything else.
 const scratchRoot = join(app.getPath('userData'), 'no-project')
 const isScratch = (dir: string) => dir.startsWith(scratchRoot + sep)
@@ -273,7 +273,7 @@ ipcMain.handle('pick-folder', async () => {
   return r.canceled ? undefined : r.filePaths[0]
 })
 
-// Without a project folder (or from a "No project" thread), the next send creates a fresh scratch folder.
+// Without a project folder (or from a "Chat" thread), the next send creates a fresh scratch folder.
 ipcMain.handle('new-thread', (_, dir: string | undefined) => {
   if (busy) return
   cwd = dir && !isScratch(dir) ? dir : undefined

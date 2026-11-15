@@ -162,7 +162,7 @@ function Reply({ replies, streaming, waiting }: { replies: Item[]; streaming: bo
   )
 }
 
-// `cwd` is unset until a "No project" thread gets its scratch folder; `folder` is unset for "No project".
+// `cwd` is unset until a "Chat" thread gets its scratch folder; `folder` is unset for "Chat".
 type Active = { id?: string; cwd?: string; folder?: string; backend?: Backend }
 
 const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
@@ -180,7 +180,7 @@ function TitleBar({ title, folder, busy, onClick }: { title: string; folder?: st
           className="flex h-7 max-w-96 items-center gap-1.5 rounded-lg px-2 text-sm text-foreground/80 transition-colors outline-none [-webkit-app-region:no-drag] hover:bg-foreground/10 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           <span className="truncate font-medium">{title}</span>
-          <span className="shrink-0 text-muted-foreground">· {folder ?? 'No project'}</span>
+          <span className="shrink-0 text-muted-foreground">· {folder ?? 'Chat'}</span>
           {busy ? (
             <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
           ) : (
@@ -257,7 +257,7 @@ function AskCard({ ask, onReply }: { ask: Ask; onReply: (answer: Answer) => void
 
 export function App() {
   const [threads, setThreads] = useState<Thread[]>([])
-  // Starts in "No project": a plain chat without any project context.
+  // Starts in "Chat": a plain chat without any project context.
   const [active, setActive] = useState<Active>({})
   const [models, setModels] = useState<Model[]>([])
   // Saved models from before Pi support carry no backend prefix.
@@ -276,7 +276,7 @@ export function App() {
   // Lets the keydown listener, registered once, see the latest state.
   const latest = useRef({ terminal, panelView, busy, project: false, newThread: () => {}, cycleEffort: () => {} })
 
-  // Shows `view` in the panel, or hides the panel if `view` is already showing. "No project" threads have no panel.
+  // Shows `view` in the panel, or hides the panel if `view` is already showing. "Chat" threads have no panel.
   const toggle = (view: PanelView) => {
     const { terminal, panelView, project } = latest.current
     if (!project) return
@@ -339,7 +339,7 @@ export function App() {
     }
   }, [])
 
-  // Starts a fresh thread in a project folder, or in "No project" when `cwd` is undefined.
+  // Starts a fresh thread in a project folder, or in "Chat" when `cwd` is undefined.
   const chooseProject = async (cwd: string | undefined) => {
     await window.api.newThread(cwd)
     setActive({ cwd, folder: cwd && folderName(cwd) })
@@ -356,7 +356,7 @@ export function App() {
     if (dir) chooseProject(dir)
   }
 
-  // A "No project" thread's scratch folder is never reused; the next one gets its own.
+  // A "Chat" thread's scratch folder is never reused; the next one gets its own.
   const newThread = () => chooseProject(active.folder ? active.cwd : undefined)
 
   const openThread = async (thread: Thread) => {
@@ -418,7 +418,7 @@ export function App() {
     { key: 'new', label: 'New thread', icon: <PlusIcon />, hint: '⌘N', disabled: busy, run: newThread },
     { key: 'threads', label: 'Switch thread…', icon: <MessagesSquareIcon />, hint: '⌘P', run: () => setPalette('threads') },
     { key: 'folder', label: 'Open folder…', icon: <FolderOpenIcon />, disabled: busy, run: pickFolder },
-    { key: 'none', label: 'New chat without project', icon: <MessageCircleIcon />, disabled: busy, run: () => chooseProject(undefined) },
+    { key: 'none', label: 'New chat', icon: <MessageCircleIcon />, disabled: busy, run: () => chooseProject(undefined) },
     { key: 'terminal', label: 'Toggle terminal', icon: <SquareTerminalIcon />, hint: '⌘J', disabled: !project, run: () => toggle('terminal') },
     { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘G', disabled: !project, run: () => toggle('diff') },
     { key: 'browser', label: 'Toggle browser', icon: <GlobeIcon />, hint: '⌘B', disabled: !project, run: () => toggle('browser') },
@@ -427,7 +427,7 @@ export function App() {
   const threadRows: PaletteRow[] = threads.map((t) => ({
     key: t.id,
     label: t.title,
-    detail: [t.folder ?? 'No project', t.backend === 'pi' && 'Pi'].filter(Boolean).join(' · '),
+    detail: [t.folder ?? 'Chat', t.backend === 'pi' && 'Pi'].filter(Boolean).join(' · '),
     icon: t.folder ? <FolderIcon /> : <MessageCircleIcon />,
     disabled: busy,
     run: () => openThread(t),
@@ -512,13 +512,13 @@ export function App() {
                     title={active.folder && active.cwd}
                     className="flex items-center gap-1 rounded-md px-2 font-medium text-foreground/70 transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
                   >
-                    {active.folder ?? 'No project'}
+                    {active.folder ?? 'Chat'}
                     <ChevronDownIcon className="size-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="center" className="min-w-40">
                     <DropdownMenuItem onClick={() => chooseProject(undefined)}>
                       <MessageCircleIcon />
-                      No project
+                      Chat
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={pickFolder}>
                       <FolderOpenIcon />
