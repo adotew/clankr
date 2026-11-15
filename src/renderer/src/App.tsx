@@ -274,11 +274,12 @@ export function App() {
   const [panelView, setPanelView] = useState<PanelView>('terminal')
   const [palette, setPalette] = useState<'commands' | 'threads'>()
   // Lets the keydown listener, registered once, see the latest state.
-  const latest = useRef({ terminal, panelView, busy, newThread: () => {}, cycleEffort: () => {} })
+  const latest = useRef({ terminal, panelView, busy, project: false, newThread: () => {}, cycleEffort: () => {} })
 
-  // Shows `view` in the panel, or hides the panel if `view` is already showing.
+  // Shows `view` in the panel, or hides the panel if `view` is already showing. "No project" threads have no panel.
   const toggle = (view: PanelView) => {
-    const { terminal, panelView } = latest.current
+    const { terminal, panelView, project } = latest.current
+    if (!project) return
     setTerminal(terminal === 'open' && panelView === view ? 'hidden' : 'open')
     setPanelView(view)
   }
@@ -396,7 +397,8 @@ export function App() {
     const order = [undefined, ...levels]
     pickEffort(order[(order.indexOf(effort) + 1) % order.length])
   }
-  latest.current = { terminal, panelView, busy, newThread, cycleEffort }
+  const project = active.folder !== undefined
+  latest.current = { terminal, panelView, busy, project, newThread, cycleEffort }
 
   const send = async (text: string) => {
     setItems((xs) => [...xs, { kind: 'user', text }])
@@ -417,9 +419,9 @@ export function App() {
     { key: 'threads', label: 'Switch thread…', icon: <MessagesSquareIcon />, hint: '⌘P', run: () => setPalette('threads') },
     { key: 'folder', label: 'Open folder…', icon: <FolderOpenIcon />, disabled: busy, run: pickFolder },
     { key: 'none', label: 'New chat without project', icon: <MessageCircleIcon />, disabled: busy, run: () => chooseProject(undefined) },
-    { key: 'terminal', label: 'Toggle terminal', icon: <SquareTerminalIcon />, hint: '⌘J', run: () => toggle('terminal') },
-    { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘G', run: () => toggle('diff') },
-    { key: 'browser', label: 'Toggle browser', icon: <GlobeIcon />, hint: '⌘B', run: () => toggle('browser') },
+    { key: 'terminal', label: 'Toggle terminal', icon: <SquareTerminalIcon />, hint: '⌘J', disabled: !project, run: () => toggle('terminal') },
+    { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘G', disabled: !project, run: () => toggle('diff') },
+    { key: 'browser', label: 'Toggle browser', icon: <GlobeIcon />, hint: '⌘B', disabled: !project, run: () => toggle('browser') },
     { key: 'settings', label: 'Settings', icon: <SettingsIcon />, hint: '⌘,', run: window.api.openSettings },
   ]
   const threadRows: PaletteRow[] = threads.map((t) => ({
@@ -581,7 +583,7 @@ export function App() {
 
           {turns.length > 0 && <div className="mx-auto w-full max-w-3xl px-6 pb-6">{prompt}</div>}
         </div>
-        {terminal !== 'off' && (
+        {terminal !== 'off' && project && (
           <TerminalPanel
             key={active.cwd}
             cwd={active.cwd}
