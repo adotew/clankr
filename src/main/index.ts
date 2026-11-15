@@ -233,7 +233,15 @@ const piThreads = async (): Promise<Thread[]> =>
 
 ipcMain.handle('threads', async (): Promise<Thread[]> => {
   const lists = await Promise.all([settings.claude ? claudeThreads() : [], settings.pi ? piThreads() : []])
-  return lists.flat().sort((a, b) => b.updated - a.updated)
+  // One lookup per project folder; undefined outside a repo or on a detached HEAD.
+  const branches = new Map<string, Promise<string | undefined>>()
+  const branchOf = (dir: string) => {
+    if (!branches.has(dir))
+      branches.set(dir, git(dir, ['branch', '--show-current']).then((s) => s.trim() || undefined, () => undefined))
+    return branches.get(dir)!
+  }
+  const threads = lists.flat().sort((a, b) => b.updated - a.updated)
+  return Promise.all(threads.map(async (t) => (t.folder ? { ...t, branch: await branchOf(t.cwd) } : t)))
 })
 
 ipcMain.handle('settings', () => settings)

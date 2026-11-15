@@ -1,5 +1,5 @@
 import { BotAvatar, botAvatarPalette, botAvatarTypes, type BotAvatarState, type BotAvatarType } from 'bot-avatars'
-import { FolderIcon } from 'lucide-react'
+import { FolderIcon, GitBranchIcon } from 'lucide-react'
 
 import { Dock, DockIcon } from '@/components/ui/dock'
 import { cn } from '@/lib/utils'
@@ -25,13 +25,14 @@ export function randomBot(taken: Bot[]): Bot {
   return { type: pick(free.length ? free : botAvatarTypes), color: pick(colors) }
 }
 
-// `folder` is set for project threads; `status` says what a busy thread's bot is doing.
+// `folder` and `branch` are set for project threads; `status` says what a busy thread's bot is doing.
 export type RosterEntry = {
   key: string
   bot: Bot
   state: BotAvatarState
   title: string
   folder?: string
+  branch?: string
   status?: string
   selected: boolean
   onClick?: () => void
@@ -55,7 +56,7 @@ export function Roster({ entries, disabled }: { entries: RosterEntry[]; disabled
             <BotAvatar {...entry.bot} state={entry.state} size="100cqw" style={{ display: 'block' }} />
             <button
               type="button"
-              aria-label={[entry.title, entry.folder, entry.status].filter(Boolean).join(', ')}
+              aria-label={[entry.title, entry.folder, entry.branch, entry.status].filter(Boolean).join(', ')}
               aria-current={entry.selected || undefined}
               aria-disabled={disabled || undefined}
               onClick={() => !disabled && entry.onClick?.()}
@@ -66,7 +67,10 @@ export function Roster({ entries, disabled }: { entries: RosterEntry[]; disabled
               {(entry.folder || entry.status) && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   {entry.folder && <FolderIcon className="size-3" />}
-                  {[entry.folder, entry.status].filter(Boolean).join(' · ')}
+                  {entry.folder}
+                  {entry.branch && <GitBranchIcon className="ml-1 size-3" />}
+                  {entry.branch}
+                  {entry.status && (entry.folder ? `· ${entry.status}` : entry.status)}
                 </span>
               )}
             </span>

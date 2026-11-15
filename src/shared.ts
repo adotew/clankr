@@ -8,9 +8,17 @@ export type AgentEvent =
   | { kind: 'ask'; id: string; title: string; detail?: string; options?: string[]; input?: boolean }
   | { kind: 'done' }
 
-// `folder` is undefined for "Chat" threads.
+// `folder` is undefined for "Chat" threads; `branch` is the folder's current git branch, if it has one.
 // For Pi threads, `id` is the session file path.
-export type Thread = { id: string; title: string; cwd: string; folder?: string; backend: Backend; updated: number }
+export type Thread = {
+  id: string
+  title: string
+  cwd: string
+  folder?: string
+  branch?: string
+  backend: Backend
+  updated: number
+}
 // `value` is prefixed with its backend, e.g. "claude:default" or "pi:anthropic/claude-opus-5-5".
 // `efforts` lists the effort/thinking levels the model accepts, weakest first; absent when it has none.
 export type Model = { value: string; displayName: string; backend: Backend; group: string; efforts?: string[] }
