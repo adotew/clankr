@@ -28,6 +28,8 @@ export function Palette(props: {
   const [selected, setSelected] = useState(0)
   const [editing, setEditing] = useState<string>()
   const list = useRef<HTMLDivElement>(null)
+  // Set when a row runs, so focus it moves (e.g. into the terminal) isn't handed back to where it was.
+  const ran = useRef(false)
 
   const q = query.trim().toLowerCase()
   const filtered = props.sections
@@ -38,6 +40,7 @@ export function Palette(props: {
 
   useEffect(() => {
     if (props.open) {
+      ran.current = false
       setQuery('')
       setSelected(0)
       setEditing(undefined)
@@ -50,6 +53,7 @@ export function Palette(props: {
 
   const run = (row: PaletteRow) => {
     if (row.disabled) return
+    ran.current = true
     props.onOpenChange(false)
     row.run()
   }
@@ -71,6 +75,7 @@ export function Palette(props: {
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/20 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <Dialog.Popup
           onKeyDown={onKeyDown}
+          finalFocus={() => !ran.current}
           className="fixed top-[15%] left-1/2 z-50 flex max-h-[60vh] w-[min(36rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl bg-popover/80 text-popover-foreground shadow-2xl ring-1 ring-foreground/10 backdrop-blur-xl transition-[opacity,scale] duration-150 outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
         >
           <Dialog.Title className="sr-only">{props.title}</Dialog.Title>

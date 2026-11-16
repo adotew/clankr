@@ -8,14 +8,15 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "app": "electron-vite build && electron-builder --mac dir"
+    "app": "electron-vite build && electron-builder --mac dir",
+    "install-app": "sh scripts/install-app.sh"
   },
   "build": {
     "appId": "com.clankr.app",
     "productName": "clankr",
     "files": ["out/**"],
     "asar": false,
-    "mac": { "icon": "build/icon.png", "identity": "-", "hardenedRuntime": false }
+    "mac": { "icon": "build/Clankr.icon", "identity": "-", "hardenedRuntime": false }
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.323",

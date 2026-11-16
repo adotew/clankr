@@ -115,7 +115,7 @@ export function ToolStep({ tool, running }: { tool: ToolItem; running: boolean }
         <TraceLine status={failed ? 'error' : pending ? (running ? 'running' : 'pending') : undefined}>
           <TraceIcon>{pending && running ? <LoaderCircleIcon className="animate-spin" /> : <Icon />}</TraceIcon>
           <TraceTitle title={describe(tool.input)}>
-            <span className="font-medium">{name}</span>{' '}
+            <span className="font-mono font-medium">{name}</span>{' '}
             <span className="font-mono text-xs text-muted-foreground/70">{label(tool.input)}</span>
           </TraceTitle>
         </TraceLine>

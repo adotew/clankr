@@ -1,10 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron'
 import { spawn, type IPty } from '@lydell/node-pty'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import {
   deleteSession,
@@ -15,12 +15,13 @@ import {
   tagSession,
   type CanUseTool,
   type EffortLevel,
+  type Options,
   type Query,
 } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentEvent, Backend, Model, PiInfo, Settings, Thread } from '../shared'
-import { modified, piEfforts, piModels, PiRpc, piVersion, readPiSession, shellEnv, toEvents as piEvents } from './pi'
+import type { AgentEvent, Answer, Backend, Command, Context, Model, PiInfo, Settings, SlashCommand, Thread, ThreadRef, Turn } from '../shared'
+import { modified, piCommands, piEfforts, piModels, PiRpc, piVersion, readPiSession, shellEnv, toEvents as piEvents } from './pi'
 
-// Marks sessions created by this app so other Claude Code sessions stay out of the sidebar.
+// Marks sessions created by this app so other Claude Code sessions stay out of the dock.
 const TAG = 'clankr'
 
 // "Chat" threads each get an empty folder here, so they run without any project context
@@ -38,7 +39,7 @@ try {
   // First launch, or an unreadable file: keep the defaults.
 }
 
-// Pi sessions this app started, so the user's other Pi sessions stay out of the sidebar.
+// Pi sessions this app started, so the user's other Pi sessions stay out of the dock.
 type PiThread = { file: string; cwd: string; title: string }
 const piIndex = join(app.getPath('userData'), 'pi-sessions.json')
 const readPiIndex = async (): Promise<PiThread[]> => {
@@ -48,7 +49,20 @@ const readPiIndex = async (): Promise<PiThread[]> => {
     return []
   }
 }
-const writePiIndex = (threads: PiThread[]) => writeFile(piIndex, JSON.stringify(threads))
+// Edits run one at a time, so parallel threads can't overwrite each other's change.
+let piIndexQueue: Promise<unknown> = Promise.resolve()
+const updatePiIndex = (edit: (threads: PiThread[]) => PiThread[]) => {
+  const next = piIndexQueue.then(async () => writeFile(piIndex, JSON.stringify(edit(await readPiIndex()))))
+  piIndexQueue = next.catch(() => {})
+  return next
+}
+
+// User settings load for ~/.claude's skills and commands, but only managed hooks run: global hooks there
+// can answer permission requests before our approval UI sees them.
+const claudeOptions: Options = {
+  settingSources: ['user', 'project', 'local'],
+  managedSettings: { allowManagedHooksOnly: true },
+}
 
 let win: BrowserWindow
 let settingsWin: BrowserWindow | undefined
@@ -59,25 +73,23 @@ nativeTheme.on('updated', () => {
   for (const w of BrowserWindow.getAllWindows()) w.setBackgroundColor(background())
 })
 
-// The browser panel's <webview>: no preload or Node, web URLs only, popups load in place.
+const isWeb = (url: string) => /^https?:\/\//i.test(url)
+
 app.on('web-contents-created', (_, contents) => {
+  // The browser panel's <webview>: no preload or Node, web URLs only.
   contents.on('will-attach-webview', (e, prefs, params) => {
     delete prefs.preload
     prefs.nodeIntegration = false
     prefs.contextIsolation = true
     if (!/^(https?:|about:blank$)/.test(params.src)) e.preventDefault()
   })
-  if (contents.getType() !== 'webview') return
+  // Popups in the browser panel load in place; links that would open a window from the app itself open in the
+  // default browser.
   contents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) contents.loadURL(url)
+    if (contents.getType() === 'webview') {
+      if (isWeb(url)) contents.loadURL(url)
+    } else if (isWeb(url)) shell.openExternal(url)
     return { action: 'deny' }
-  })
-  // Keystrokes in a webview never reach the host page, so pass ⌘ shortcuts on to the app's handler.
-  contents.on('before-input-event', (_, input) => {
-    if (input.type === 'keyDown' && input.meta) {
-      const { code, shift, alt, control } = input
-      contents.hostWebContents?.send('webview-key', { code, shift, alt, control })
-    }
   })
 })
 
@@ -86,30 +98,48 @@ const load = (w: BrowserWindow, hash = '') => {
   else w.loadFile(join(import.meta.dirname, '../renderer/index.html'), { hash })
 }
 
-// Settings or Pi logins changed: drop cached models and tell every window to reload.
-const changed = () => {
-  models = undefined
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('changed')
+// A thread the page has sent to, keyed by the page's thread key, so threads run in parallel. `sessionId` is a
+// Claude session ID or a Pi session file, depending on `backend`; unset until a new thread's first turn starts.
+type Run = {
+  cwd: string
+  backend: Backend
+  sessionId?: string
+  busy: boolean
+  current?: Query
+  // Stays alive between prompts, until the page releases the thread.
+  pi?: PiRpc
+  // Ends the Pi run in progress, with an error if pi died.
+  settle?: (err?: Error) => void
+  // As of the last finished turn.
+  context?: Context
 }
-let cwd: string | undefined
-// The active thread: a Claude session ID or a Pi session file, depending on `backend`.
-let backend: Backend = 'claude'
-let sessionId: string | undefined
-let busy = false
-let current: Query | undefined
-// Stays alive between prompts of the active Pi thread.
-let pi: PiRpc | undefined
-// Ends the Pi run in progress, with an error if pi died.
-let settle: ((err?: Error) => void) | undefined
+const runs = new Map<string, Run>()
 let models: Promise<Model[]> | undefined
-const pending = new Map<string, (answer: boolean | string | undefined) => void>()
+const pending = new Map<string, (answer: Answer) => void>()
 
-const closePi = () => {
-  pi?.close()
-  pi = undefined
+const closePi = (run: Run) => {
+  run.pi?.close()
+  run.pi = undefined
 }
 
-const emit = (e: AgentEvent) => win.webContents.send('agent:event', e)
+// Text deltas are merged and sent about once a frame: sent per token, the page re-rendered per token. Any other event
+// sends the pending text first, so the order holds.
+const emitTo = (thread: string) => {
+  let text = ''
+  const flush = () => {
+    if (text && !win.isDestroyed()) win.webContents.send('agent:event', thread, { kind: 'delta', text })
+    text = ''
+  }
+  return (event: AgentEvent) => {
+    if (event.kind === 'delta') {
+      if (!text) setTimeout(flush, 16)
+      text += event.text
+      return
+    }
+    flush()
+    if (!win.isDestroyed()) win.webContents.send('agent:event', thread, event)
+  }
+}
 
 const toText = (content: unknown): string =>
   typeof content === 'string'
@@ -137,42 +167,71 @@ function toEvents(type: string, message: unknown, history: boolean): AgentEvent[
   })
 }
 
-const canUseTool: CanUseTool = (name, input, { signal }) =>
-  new Promise((resolve) => {
-    const id = randomUUID()
-    pending.set(id, (allow) =>
-      resolve(allow === true ? { behavior: 'allow' } : { behavior: 'deny', message: 'User denied this action' }),
-    )
-    signal.addEventListener('abort', () => {
-      pending.delete(id)
-      resolve({ behavior: 'deny', message: 'Aborted' })
+const canUseTool =
+  (emit: (e: AgentEvent) => void): CanUseTool =>
+  (name, input, { signal }) =>
+    new Promise((resolve) => {
+      const id = randomUUID()
+      pending.set(id, (allow) =>
+        resolve(allow === true ? { behavior: 'allow' } : { behavior: 'deny', message: 'User denied this action' }),
+      )
+      signal.addEventListener('abort', () => {
+        pending.delete(id)
+        resolve({ behavior: 'deny', message: 'Aborted' })
+      })
+      const { command, file_path, description } = input
+      const detail = [command, file_path, description].find((v) => typeof v === 'string') as string | undefined
+      emit({ kind: 'ask', id, title: `Allow ${name}?`, detail })
     })
-    const { command, file_path, description } = input
-    const detail = [command, file_path, description].find((v) => typeof v === 'string') as string | undefined
-    emit({ kind: 'ask', id, title: `Allow ${name}?`, detail })
-  })
 
-// supportedModels() needs a live CLI process; open one with a prompt that never arrives, then close it.
-async function claudeModels(): Promise<Model[]> {
+// Some queries need a live CLI process; open one with a prompt that never arrives, then close it.
+async function idleClaude<T>(cwd: string, use: (q: Query) => Promise<T>): Promise<T> {
   let release = () => {}
   const idle = new Promise<void>((r) => (release = r))
   const q = query({
     prompt: (async function* () {
       await idle
     })(),
+    options: { ...claudeOptions, cwd },
   })
   try {
-    return (await q.supportedModels()).map(({ value, displayName, supportedEffortLevels }) => ({
-      value: `claude:${value}`,
-      displayName,
-      backend: 'claude',
-      group: 'Claude',
-      efforts: supportedEffortLevels,
-    }))
+    return await use(q)
   } finally {
     q.close()
     release()
   }
+}
+
+const claudeModels = () =>
+  idleClaude(tmpdir(), async (q) =>
+    (await q.supportedModels()).map(
+      ({ value, displayName, supportedEffortLevels }): Model => ({
+        value: `claude:${value}`,
+        displayName,
+        backend: 'claude',
+        group: 'Claude',
+        efforts: supportedEffortLevels,
+      }),
+    ),
+  )
+
+// shortcut: cached until settings change, so skills added meanwhile only show up after that or a restart.
+const commandCache = new Map<string, Promise<SlashCommand[]>>()
+function slashCommands(backend: Backend, cwd: string) {
+  const key = `${backend}:${cwd}`
+  let commands = commandCache.get(key)
+  if (!commands) {
+    commands = (
+      backend === 'pi'
+        ? piCommands(piBin, cwd)
+        : idleClaude(cwd, async (q) => (await q.supportedCommands()).map(({ name, description }) => ({ name, description })))
+    ).catch((err) => {
+      commandCache.delete(key)
+      throw err
+    })
+    commandCache.set(key, commands)
+  }
+  return commands
 }
 
 const pi2Models = async (): Promise<Model[]> => [
@@ -233,25 +292,46 @@ const piThreads = async (): Promise<Thread[]> =>
 
 ipcMain.handle('threads', async (): Promise<Thread[]> => {
   const lists = await Promise.all([settings.claude ? claudeThreads() : [], settings.pi ? piThreads() : []])
-  // One lookup per project folder; undefined outside a repo or on a detached HEAD.
+  // One lookup per project folder.
   const branches = new Map<string, Promise<string | undefined>>()
   const branchOf = (dir: string) => {
-    if (!branches.has(dir))
-      branches.set(dir, git(dir, ['branch', '--show-current']).then((s) => s.trim() || undefined, () => undefined))
+    if (!branches.has(dir)) branches.set(dir, currentBranch(dir))
     return branches.get(dir)!
   }
   const threads = lists.flat().sort((a, b) => b.updated - a.updated)
   return Promise.all(threads.map(async (t) => (t.folder ? { ...t, branch: await branchOf(t.cwd) } : t)))
 })
 
+ipcMain.handle('branch', (_, cwd: string) => currentBranch(cwd))
+ipcMain.handle('commands', (_, backend: Backend, cwd: string | undefined) => slashCommands(backend, cwd ?? tmpdir()))
+
+// shortcut: lists only git's files (tracked and untracked, minus ignored); scan the folder if non-git projects need
+// docs too.
+ipcMain.handle('docs', (_, cwd: string) =>
+  git(cwd, ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.md']).then(
+    (out) => [...new Set(out.split('\0'))].filter((f) => f && existsSync(join(cwd, f))),
+    () => [],
+  ),
+)
+ipcMain.handle('read-doc', (_, path: string) =>
+  /\.md$/i.test(path) ? readFile(path, 'utf8').catch(() => undefined) : undefined,
+)
+
 ipcMain.handle('settings', () => settings)
 
 ipcMain.handle('save-settings', async (_, next: Settings) => {
   settings = next
-  if (!busy) closePi()
+  for (const run of runs.values()) if (!run.busy) closePi(run)
   await writeFile(settingsFile, JSON.stringify(settings, null, 2))
   changed()
 })
+
+// Settings or Pi logins changed: drop cached models and commands and tell every window to reload them.
+function changed() {
+  models = undefined
+  commandCache.clear()
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('changed')
+}
 
 const openSettings = () => {
   if (settingsWin) return settingsWin.focus()
@@ -270,6 +350,9 @@ const openSettings = () => {
   load(settingsWin, '#settings')
 }
 ipcMain.on('open-settings', openSettings)
+ipcMain.on('open-external', (_, url: string) => {
+  if (isWeb(url)) shell.openExternal(url)
+})
 
 ipcMain.handle('pi-info', async (): Promise<PiInfo> => {
   const version = await piVersion(piBin)
@@ -277,24 +360,25 @@ ipcMain.handle('pi-info', async (): Promise<PiInfo> => {
 })
 
 ipcMain.handle('pick-folder', async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+  const r = await dialog.showOpenDialog(win, { defaultPath: homedir(), properties: ['openDirectory'] })
   return r.canceled ? undefined : r.filePaths[0]
 })
 
-// Without a project folder (or from a "Chat" thread), the next send creates a fresh scratch folder.
-ipcMain.handle('new-thread', (_, dir: string | undefined) => {
-  if (busy) return
-  cwd = dir && !isScratch(dir) ? dir : undefined
-  sessionId = undefined
-  closePi()
+ipcMain.handle('pick-files', async (_, cwd: string | undefined) => {
+  const r = await dialog.showOpenDialog(win, { defaultPath: cwd ?? homedir(), properties: ['openFile', 'multiSelections'] })
+  return r.canceled ? [] : r.filePaths
+})
+
+ipcMain.handle('save-attachment', async (_, name: string, data: ArrayBuffer) => {
+  const dir = join(tmpdir(), 'clankr-attachments', randomUUID())
+  await mkdir(dir, { recursive: true })
+  // basename keeps a crafted name from writing outside `dir`.
+  const path = join(dir, basename(name) || 'file')
+  await writeFile(path, Buffer.from(data))
+  return path
 })
 
 ipcMain.handle('open-thread', async (_, thread: Thread): Promise<AgentEvent[]> => {
-  if (busy) return []
-  closePi()
-  cwd = thread.cwd
-  sessionId = thread.id
-  backend = thread.backend
   if (thread.backend === 'pi') return readPiSession(thread.id)
   const messages = await getSessionMessages(thread.id, { dir: thread.cwd })
   return messages.filter((m) => !m.parent_tool_use_id).flatMap((m) => toEvents(m.type, m.message, true))
@@ -303,13 +387,13 @@ ipcMain.handle('open-thread', async (_, thread: Thread): Promise<AgentEvent[]> =
 ipcMain.handle('rename-thread', async (_, thread: Thread, title: string) => {
   title = title.trim()
   if (!title) return
-  if (thread.backend === 'pi')
-    await writePiIndex((await readPiIndex()).map((t) => (t.file === thread.id ? { ...t, title } : t)))
+  if (thread.backend === 'pi') await updatePiIndex((index) => index.map((t) => (t.file === thread.id ? { ...t, title } : t)))
   else await renameSession(thread.id, title, { dir: thread.cwd })
 })
 
 ipcMain.handle('delete-thread', async (_, thread: Thread): Promise<boolean> => {
-  if (busy) return false
+  const threadRuns = [...runs].filter(([, run]) => run.sessionId === thread.id)
+  if (threadRuns.some(([, run]) => run.busy)) return false
   const { response } = await dialog.showMessageBox(BrowserWindow.getFocusedWindow() ?? win, {
     type: 'warning',
     message: `Delete “${thread.title}”?`,
@@ -325,58 +409,68 @@ ipcMain.handle('delete-thread', async (_, thread: Thread): Promise<boolean> => {
   // Paths come from the renderer, so only delete what this app created: indexed Pi sessions and scratch folders.
   let dir = thread.cwd
   if (thread.backend === 'pi') {
-    const index = await readPiIndex()
-    const entry = index.find((t) => t.file === thread.id)
+    const entry = (await readPiIndex()).find((t) => t.file === thread.id)
     if (!entry) return false
     dir = entry.cwd
     await rm(entry.file, { force: true })
     // Pi keeps one folder per cwd; a scratch thread's is empty now.
     await rmdir(dirname(entry.file)).catch(() => {})
-    await writePiIndex(index.filter((t) => t !== entry))
+    await updatePiIndex((index) => index.filter((t) => t.file !== entry.file))
   } else await deleteSession(thread.id, { dir })
   if (dirname(resolve(dir)) === scratchRoot) await rm(dir, { recursive: true, force: true })
 
-  if (thread.id === sessionId) {
-    sessionId = undefined
-    cwd = undefined
-    closePi()
+  for (const [key, run] of threadRuns) {
+    closePi(run)
+    runs.delete(key)
   }
   return true
 })
 
-ipcMain.handle('send', async (_, prompt: string, model: string, effort: string | undefined) => {
-  if (busy) return
-  const [next, id] = model.split(/:(.*)/) as [Backend, string]
-  // A thread keeps the backend it started with; their sessions aren't interchangeable.
-  if (sessionId && next !== backend) {
-    emit({
-      kind: 'error',
-      text: `This thread runs on ${backend === 'pi' ? 'Pi' : 'Claude'}; start a new thread to switch.`,
-    })
-    emit({ kind: 'done' })
-    return
-  }
-  backend = next
-  busy = true
-  if (!cwd) {
-    cwd = join(scratchRoot, randomUUID())
-    await mkdir(cwd, { recursive: true })
-  }
-  try {
-    await (backend === 'pi' ? sendPi(prompt, id, effort, cwd) : sendClaude(prompt, id, effort, cwd))
-  } catch (err) {
-    emit({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
-  } finally {
-    busy = false
-    emit({ kind: 'done' })
-  }
-  return { sessionId, cwd, backend }
-})
+ipcMain.handle(
+  'send',
+  async (_, thread: ThreadRef, prompt: string, model: string, effort: string | undefined): Promise<Turn | undefined> => {
+    const emit = emitTo(thread.key)
+    const [backend, id] = model.split(/:(.*)/) as [Backend, string]
+    let run = runs.get(thread.key)
+    if (run?.busy) return
+    // A thread keeps the backend it started with; their sessions aren't interchangeable.
+    const started = run?.sessionId ? run.backend : thread.id ? thread.backend : undefined
+    if (started && started !== backend) {
+      emit({
+        kind: 'error',
+        text: `This thread runs on ${started === 'pi' ? 'Pi' : 'Claude'}; start a new thread to switch.`,
+      })
+      emit({ kind: 'done' })
+      return
+    }
+    if (!run) {
+      // A new thread without a project folder gets a fresh scratch folder; a "Chat" thread's is never reused.
+      let cwd = thread.cwd && (thread.id || !isScratch(thread.cwd)) ? thread.cwd : undefined
+      if (!cwd) {
+        cwd = join(scratchRoot, randomUUID())
+        await mkdir(cwd, { recursive: true })
+      }
+      run = { cwd, backend, sessionId: thread.id, busy: false }
+      runs.set(thread.key, run)
+    }
+    run.backend = backend
+    run.busy = true
+    try {
+      await (backend === 'pi' ? sendPi : sendClaude)(run, emit, prompt, id, effort)
+    } catch (err) {
+      emit({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      run.busy = false
+      emit({ kind: 'done' })
+    }
+    return { sessionId: run.sessionId, cwd: run.cwd, backend, context: run.context }
+  },
+)
 
-async function sendPi(prompt: string, model: string, effort: string | undefined, cwd: string) {
-  const isNew = !sessionId
-  if (!pi) {
-    const rpc = new PiRpc(piBin, sessionId ? ['--session', sessionId] : [], cwd, await shellEnv)
+async function sendPi(run: Run, emit: (e: AgentEvent) => void, prompt: string, model: string, effort?: string) {
+  const isNew = !run.sessionId
+  if (!run.pi) {
+    const rpc = new PiRpc(piBin, run.sessionId ? ['--session', run.sessionId] : [], run.cwd, await shellEnv)
     rpc.onRecord = (r) =>
       piEvents(r).forEach((e) => {
         if (e.kind === 'ask')
@@ -393,14 +487,14 @@ async function sendPi(prompt: string, model: string, effort: string | undefined,
           )
         emit(e)
       })
-    rpc.onSettled = () => settle?.()
+    rpc.onSettled = () => run.settle?.()
     rpc.onExit = (reason) => {
-      if (pi === rpc) pi = undefined
-      settle?.(new Error(reason))
+      if (run.pi === rpc) run.pi = undefined
+      run.settle?.(new Error(reason))
     }
-    pi = rpc
+    run.pi = rpc
   }
-  const rpc = pi
+  const rpc = run.pi
   if (model !== 'default') {
     const [provider, modelId] = model.split(/\/(.*)/)
     await rpc.call({ type: 'set_model', provider, modelId })
@@ -409,71 +503,110 @@ async function sendPi(prompt: string, model: string, effort: string | undefined,
   if (effort) await rpc.call({ type: 'set_thinking_level', level: effort })
   // Listen before prompting: a fast run can settle before the prompt's response arrives.
   const settled = new Promise<void>((resolve, reject) => {
-    settle = (err) => (err ? reject(err) : resolve())
+    run.settle = (err) => (err ? reject(err) : resolve())
   })
   settled.catch(() => {})
   try {
     const { disposition } = await rpc.call<{ disposition: string }>({ type: 'prompt', message: prompt })
     if (disposition !== 'handled') await settled
   } finally {
-    settle = undefined
+    run.settle = undefined
   }
   const state = await rpc.call<{ sessionFile?: string }>({ type: 'get_state' })
-  sessionId = state.sessionFile
-  if (isNew && sessionId)
-    await writePiIndex([...(await readPiIndex()), { file: sessionId, cwd, title: prompt.slice(0, 120) }])
+  const file = (run.sessionId = state.sessionFile)
+  const { contextUsage: usage } = await rpc.call<{ contextUsage?: { tokens: number | null; contextWindow: number } }>({
+    type: 'get_session_stats',
+  })
+  run.context = usage && { tokens: usage.tokens, window: usage.contextWindow }
+  if (isNew && file) await updatePiIndex((index) => [...index, { file, cwd: run.cwd, title: prompt.slice(0, 120) }])
 }
 
-async function sendClaude(prompt: string, model: string, effort: string | undefined, cwd: string) {
-  const isNew = !sessionId
-  current = query({
+async function sendClaude(run: Run, emit: (e: AgentEvent) => void, prompt: string, model: string, effort?: string) {
+  const isNew = !run.sessionId
+  const current = (run.current = query({
     prompt,
     options: {
-      cwd,
-      resume: sessionId,
-      canUseTool,
+      cwd: run.cwd,
+      resume: run.sessionId,
+      canUseTool: canUseTool(emit),
       model: model === 'default' ? undefined : model,
       effort: effort as EffortLevel | undefined,
       includePartialMessages: true,
-      // Skip ~/.claude settings: global hooks there can answer permission requests before our
-      // approval UI sees them. Project settings and CLAUDE.md still load.
-      settingSources: ['project', 'local'],
+      ...claudeOptions,
     },
-  })
+  }))
   try {
     for await (const msg of current) {
       // Subagent internals are skipped; their final report arrives as the parent tool's result.
       if ('parent_tool_use_id' in msg && msg.parent_tool_use_id) continue
-      if (msg.type === 'system' && msg.subtype === 'init') sessionId = msg.session_id
+      if (msg.type === 'system' && msg.subtype === 'init') run.sessionId = msg.session_id
       else if (msg.type === 'stream_event') {
         const e = msg.event
         if (e.type === 'content_block_start' && e.content_block.type === 'text') emit({ kind: 'text', text: '' })
         else if (e.type === 'content_block_delta' && e.delta.type === 'text_delta')
           emit({ kind: 'delta', text: e.delta.text })
-      } else if (msg.type === 'assistant' || msg.type === 'user') toEvents(msg.type, msg.message, false).forEach(emit)
-      else if (msg.type === 'result' && msg.subtype !== 'success') emit({ kind: 'error', text: msg.subtype })
+      } else if (msg.type === 'assistant')
+        // Local commands like /usage reply with a whole synthetic message instead of stream deltas.
+        toEvents(msg.type, msg.message, msg.message.model === '<synthetic>').forEach(emit)
+      else if (msg.type === 'user') toEvents(msg.type, msg.message, false).forEach(emit)
+      else if (msg.type === 'result') {
+        if (msg.subtype !== 'success') emit({ kind: 'error', text: msg.subtype })
+        run.context = await current.getContextUsage({ detail: 'summary' }).then(
+          (u) => ({ tokens: u.totalTokens, window: u.maxTokens }),
+          () => run.context,
+        )
+      }
     }
-    if (isNew && sessionId) await tagSession(sessionId, TAG, { dir: cwd })
+    if (isNew && run.sessionId) await tagSession(run.sessionId, TAG, { dir: run.cwd })
   } finally {
-    current = undefined
+    run.current = undefined
   }
 }
 
-ipcMain.handle('stop', async () => {
-  await (backend === 'pi' ? pi?.call({ type: 'abort' }) : current?.interrupt())
+ipcMain.handle('stop', async (_, thread: string) => {
+  const run = runs.get(thread)
+  await (run?.backend === 'pi' ? run.pi?.call({ type: 'abort' }) : run?.current?.interrupt())
 })
 
-ipcMain.on('reply', (_, id: string, answer: boolean | string | undefined) => {
+ipcMain.on('release', (_, thread: string) => {
+  const run = runs.get(thread)
+  if (!run || run.busy) return
+  closePi(run)
+  runs.delete(thread)
+})
+
+ipcMain.on('reply', (_, id: string, answer: Answer) => {
   pending.get(id)?.(answer)
   pending.delete(id)
 })
 
-// One shell per terminal pane, keyed by the renderer's pane ID.
+// One shell per terminal pane, keyed by an id the page gets back from term-start.
 const shells = new Map<number, IPty>()
+// The program last reported for each shell, so the poll only sends changes.
+const procNames = new Map<number, string>()
+let nextShell = 0
+let procPoll: ReturnType<typeof setInterval> | undefined
 
-ipcMain.on('term-start', (_, id: number, cwd: string | undefined, cols: number, rows: number) => {
-  shells.get(id)?.kill()
-  const pty = spawn(process.env.SHELL ?? '/bin/zsh', ['-l'], {
+// The program in each shell's foreground, e.g. "nvim" or "btop"; a shell at a prompt is its own foreground process.
+function pollProcs() {
+  if (shells.size === 0) {
+    clearInterval(procPoll)
+    procPoll = undefined
+    return
+  }
+  for (const [id, pty] of shells) {
+    const name = basename(pty.process).replace(/^-/, '')
+    if (!name || procNames.get(id) === name) continue
+    procNames.set(id, name)
+    win.webContents.send('term:proc', id, name)
+  }
+}
+
+ipcMain.handle('term-start', (_, cwd: string | undefined, cols: number, rows: number) => {
+  const id = nextShell++
+  const shellPath = process.env.SHELL ?? '/bin/zsh'
+  const name = basename(shellPath)
+  const pty = spawn(shellPath, ['-l'], {
     name: 'xterm-256color',
     cwd: cwd ?? homedir(),
     cols,
@@ -481,18 +614,24 @@ ipcMain.on('term-start', (_, id: number, cwd: string | undefined, cols: number, 
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
   })
   shells.set(id, pty)
+  procNames.set(id, name)
+  procPoll ??= setInterval(pollProcs, 1000)
   pty.onData((data) => win.webContents.send('term:data', id, data))
   pty.onExit(() => {
     if (shells.get(id) !== pty) return
     shells.delete(id)
-    win.webContents.send('term:exit', id)
+    procNames.delete(id)
+    if (!win.isDestroyed()) win.webContents.send('term:exit', id)
   })
+  return { id, name }
 })
 ipcMain.on('term-input', (_, id: number, data: string) => shells.get(id)?.write(data))
 ipcMain.on('term-resize', (_, id: number, cols: number, rows: number) => shells.get(id)?.resize(cols, rows))
 ipcMain.on('term-kill', (_, id: number) => {
-  shells.get(id)?.kill()
+  const pty = shells.get(id)
   shells.delete(id)
+  procNames.delete(id)
+  pty?.kill()
 })
 
 // Resolves stdout even on a non-zero exit, since `git diff --no-index` exits 1 when files differ.
@@ -502,25 +641,40 @@ const git = (cwd: string, args: string[]) =>
       err && !stdout && err.code !== 1 ? reject(err) : resolve(stdout),
     ),
   )
+// Undefined outside a repo or on a detached HEAD.
+const currentBranch = (cwd: string) =>
+  git(cwd, ['branch', '--show-current']).then(
+    (s) => s.trim() || undefined,
+    () => undefined,
+  )
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
 // Uncommitted changes as one patch, including untracked files; undefined outside a git repo.
 ipcMain.handle('diff', async (_, dir: string): Promise<string | undefined> => {
   // From the repo root, so untracked paths match tracked ones and cover the whole repo.
-  let cwd: string
+  let root: string
   try {
-    cwd = (await git(dir, ['rev-parse', '--show-toplevel'])).trim()
+    root = (await git(dir, ['rev-parse', '--show-toplevel'])).trim()
   } catch {
     return undefined
   }
-  const base = await git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD']).then((s) => s.trim() || EMPTY_TREE)
-  const tracked = await git(cwd, ['diff', '--no-color', base])
+  if (!root) return undefined
+  const base = (await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'])).trim() || EMPTY_TREE
+  const tracked = await git(root, ['diff', '--no-color', base])
   // shortcut: caps untracked files at 200, raise if large untracked trees matter.
-  const untracked = (await git(cwd, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean)
+  const untracked = (await git(root, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean)
   const added = await Promise.all(
-    untracked.slice(0, 200).map((f) => git(cwd, ['diff', '--no-color', '--no-index', '--', '/dev/null', f])),
+    untracked.slice(0, 200).map((f) => git(root, ['diff', '--no-color', '--no-index', '--', '/dev/null', f])),
   )
   return tracked + added.join('')
+})
+
+// Menu items for the page's shortcuts. While the page has focus it handles them itself and the menu doesn't fire;
+// while the browser panel's page has focus, the menu sends them on.
+const command = (action: Command, label: string, accelerator: string): MenuItemConstructorOptions => ({
+  label,
+  accelerator,
+  click: () => win.webContents.send('command', action),
 })
 
 app.whenReady().then(() => {
@@ -542,9 +696,31 @@ app.whenReady().then(() => {
           { role: 'quit' },
         ],
       },
-      { role: 'fileMenu' },
+      {
+        label: 'File',
+        submenu: [
+          command('newThread', 'New Thread', 'CmdOrCtrl+N'),
+          command('threads', 'Switch Thread…', 'CmdOrCtrl+P'),
+          command('commands', 'Commands…', 'CmdOrCtrl+Shift+P'),
+          { type: 'separator' },
+          command('effort', 'Next Effort Level', 'CmdOrCtrl+Shift+E'),
+          { type: 'separator' },
+          { role: 'close' },
+        ],
+      },
       { role: 'editMenu' },
-      { role: 'viewMenu' },
+      {
+        label: 'View',
+        submenu: [
+          command('terminal', 'Toggle Terminal', 'CmdOrCtrl+J'),
+          command('diff', 'Toggle Diff', 'CmdOrCtrl+G'),
+          command('browser', 'Toggle Browser', 'CmdOrCtrl+B'),
+          command('docs', 'Toggle Docs', 'CmdOrCtrl+Shift+M'),
+          { type: 'separator' },
+          { role: 'toggleDevTools' },
+          { role: 'togglefullscreen' },
+        ],
+      },
       { role: 'windowMenu' },
     ]),
   )
@@ -565,6 +741,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   for (const pty of shells.values()) pty.kill()
-  closePi()
+  for (const run of runs.values()) closePi(run)
   app.quit()
 })

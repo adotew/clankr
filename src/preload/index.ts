@@ -1,58 +1,53 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { AgentEvent, Api } from '../shared'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import type { AgentEvent, Api, Command } from '../shared'
 
-const listen = (channel: string, cb: () => void) => {
-  const listener = () => cb()
+// Subscribes to a message from the main process; returns the unsubscribe.
+const listen = <A extends unknown[]>(channel: string, cb: (...args: A) => void) => {
+  const listener = (_: IpcRendererEvent, ...args: unknown[]) => cb(...(args as A))
   ipcRenderer.on(channel, listener)
-  return () => ipcRenderer.removeListener(channel, listener)
+  return () => {
+    ipcRenderer.removeListener(channel, listener)
+  }
 }
 
 const api: Api = {
   models: () => ipcRenderer.invoke('models'),
   threads: () => ipcRenderer.invoke('threads'),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
-  newThread: (cwd) => ipcRenderer.invoke('new-thread', cwd),
+  pickFiles: (cwd) => ipcRenderer.invoke('pick-files', cwd),
+  pathOf: (file) => webUtils.getPathForFile(file),
+  saveAttachment: (name, data) => ipcRenderer.invoke('save-attachment', name, data),
   openThread: (thread) => ipcRenderer.invoke('open-thread', thread),
   renameThread: (thread, title) => ipcRenderer.invoke('rename-thread', thread, title),
   deleteThread: (thread) => ipcRenderer.invoke('delete-thread', thread),
-  send: (prompt, model, effort) => ipcRenderer.invoke('send', prompt, model, effort),
-  stop: () => ipcRenderer.invoke('stop'),
+  send: (thread, prompt, model, effort) => ipcRenderer.invoke('send', thread, prompt, model, effort),
+  stop: (thread) => ipcRenderer.invoke('stop', thread),
+  release: (thread) => ipcRenderer.send('release', thread),
   reply: (id, answer) => ipcRenderer.send('reply', id, answer),
   settings: () => ipcRenderer.invoke('settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   piInfo: () => ipcRenderer.invoke('pi-info'),
   openSettings: () => ipcRenderer.send('open-settings'),
+  openExternal: (url) => ipcRenderer.send('open-external', url),
   diff: (cwd) => ipcRenderer.invoke('diff', cwd),
+  branch: (cwd) => ipcRenderer.invoke('branch', cwd),
+  commands: (backend, cwd) => ipcRenderer.invoke('commands', backend, cwd),
+  docs: (cwd) => ipcRenderer.invoke('docs', cwd),
+  readDoc: (path) => ipcRenderer.invoke('read-doc', path),
   onChanged: (cb) => listen('changed', cb),
-  onEvent: (cb) => {
-    const listener = (_: IpcRendererEvent, e: AgentEvent) => cb(e)
-    ipcRenderer.on('agent:event', listener)
-    return () => ipcRenderer.removeListener('agent:event', listener)
-  },
+  onEvent: (cb) => listen<[string, AgentEvent]>('agent:event', cb),
+  onCommand: (cb) => listen<[Command]>('command', cb),
   term: {
-    start: (id, cwd, cols, rows) => ipcRenderer.send('term-start', id, cwd, cols, rows),
+    start: (cwd, cols, rows) => ipcRenderer.invoke('term-start', cwd, cols, rows),
     input: (id, data) => ipcRenderer.send('term-input', id, data),
     resize: (id, cols, rows) => ipcRenderer.send('term-resize', id, cols, rows),
     kill: (id) => ipcRenderer.send('term-kill', id),
-    onData: (cb) => {
-      const listener = (_: IpcRendererEvent, id: number, data: string) => cb(id, data)
-      ipcRenderer.on('term:data', listener)
-      return () => ipcRenderer.removeListener('term:data', listener)
-    },
-    onExit: (cb) => {
-      const listener = (_: IpcRendererEvent, id: number) => cb(id)
-      ipcRenderer.on('term:exit', listener)
-      return () => ipcRenderer.removeListener('term:exit', listener)
-    },
+    onData: (cb) => listen<[number, string]>('term:data', cb),
+    onProc: (cb) => listen<[number, string]>('term:proc', cb),
+    onExit: (cb) => listen<[number]>('term:exit', cb),
   },
 }
 
 contextBridge.exposeInMainWorld('api', api)
 
-type Key = { code: string; shift: boolean; alt: boolean; control: boolean }
-ipcRenderer.on('webview-key', (_, k: Key) =>
-  window.dispatchEvent(
-    new KeyboardEvent('keydown', { code: k.code, metaKey: true, shiftKey: k.shift, altKey: k.alt, ctrlKey: k.control }),
-  ),
-)
 ipcRenderer.on('fullscreen', (_, on: boolean) => document.documentElement.classList.toggle('fullscreen', on))

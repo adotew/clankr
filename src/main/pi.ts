@@ -1,7 +1,7 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import type { AgentEvent } from '../shared'
+import type { AgentEvent, SlashCommand } from '../shared'
 
 // Apps started from Finder miss the login shell's environment (PATH, PI_CODING_AGENT_DIR, …),
 // so read it once from an interactive login shell, the way a terminal would see it.
@@ -169,6 +169,16 @@ export async function piModels(bin: string): Promise<PiModel[]> {
   const pi = new PiRpc(bin, ['--no-session'], homedir(), await shellEnv)
   try {
     return (await pi.call<{ models: PiModel[] }>({ type: 'get_available_models' })).models
+  } finally {
+    pi.close()
+  }
+}
+
+export async function piCommands(bin: string, cwd: string): Promise<SlashCommand[]> {
+  const pi = new PiRpc(bin, ['--no-session'], cwd, await shellEnv)
+  try {
+    const { commands } = await pi.call<{ commands: SlashCommand[] }>({ type: 'get_commands' })
+    return commands.map(({ name, description }) => ({ name, description }))
   } finally {
     pi.close()
   }

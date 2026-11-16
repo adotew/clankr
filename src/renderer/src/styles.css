@@ -5,6 +5,36 @@
 /* Streamdown renders markdown with Tailwind classes. */
 @source "../../../node_modules/streamdown/dist/*.js";
 
+/* The terminal's and diff view's font ships with the app (SIL OFL, see fonts/OFL.txt), so it doesn't depend on what's installed. */
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./fonts/JetBrainsMonoNerdFont-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./fonts/JetBrainsMonoNerdFont-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./fonts/JetBrainsMonoNerdFont-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./fonts/JetBrainsMonoNerdFont-BoldItalic.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 @font-face {
   font-family: Heming;
   src: url('./fonts/heming-variable.ttf') format('truetype');
@@ -180,8 +210,7 @@ body.resizing webview {
 [data-slot='message-scroller-viewport']::-webkit-scrollbar-track {
   margin-block: 16px;
 }
-/* With the side panel open, the thumb runs along the panel's edge: from below its tab rail (8px inset + 108px rail +
-   16px concave corner) down to where its bottom corner rounds off (8px inset + 16px radius). */
+/* With the side panel open, the thumb runs along the panel's edge, clear of its rounded corners. */
 :has(> [data-slot='side-panel'][data-open]) > * [data-slot='message-scroller-viewport']::-webkit-scrollbar-track {
   margin-top: 132px;
   margin-bottom: 24px;

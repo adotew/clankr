@@ -1,193 +1,118 @@
-import { useEffect, useRef, useState } from 'react'
-import { FileDiffIcon, GlobeIcon, SquareTerminalIcon } from 'lucide-react'
-import { CanvasRenderer, FitAddon, init, Terminal } from 'ghostty-web'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { Columns2Icon, Rows2Icon, XIcon } from 'lucide-react'
+import { FitAddon, init, Terminal } from 'ghostty-web'
 
+import { BrowserView } from '@/components/browser-view'
+import { cursorTrail, sweepCursor } from '@/components/cursor-trail'
+import { DiffView } from '@/components/diff-view'
+import { DocsView } from '@/components/docs-view'
+import { PanelHeader, type PanelView } from '@/components/panel'
+import { ResizeHandle, useStoredWidth } from '@/components/resize-handle'
+import { Button } from '@/components/ui/button'
+import { arrows, neighbour, pct, rects, removePane, splitPane, type Dir, type Layout } from '@/lib/panes'
+import { font, hidden, idle, repaint, themes } from '@/lib/terminal'
+import { folderName } from '@/lib/ui'
 import { cn } from '@/lib/utils'
-import { BrowserView } from './browser-view'
-import { cursorTrail, sweepCursor } from './cursor-trail'
-import { DiffView } from './diff-view'
-import { ResizeHandle, useStoredWidth } from './resize-handle'
-
-const font = '"JetBrainsMono Nerd Font", "JetBrainsMono NF", monospace'
-
-// Make ghostty-web render like native Ghostty.
-type Metrics = { width: number; height: number; baseline: number }
-// SAFETY: these are private CanvasRenderer members in ghostty-web 0.4; recheck when upgrading.
-const renderer = CanvasRenderer.prototype as unknown as {
-  measureFont(this: { fontSize: number; fontFamily: string }): Metrics
-  resize(this: { ctx: CanvasRenderingContext2D; theme: { background: string } }, cols: number, rows: number): void
-  render(this: { ctx: CanvasRenderingContext2D }, buffer: unknown, forceAll?: boolean, ...rest: unknown[]): void
-  renderCursor(
-    this: { ctx: CanvasRenderingContext2D; metrics: Metrics; theme: { cursor: string }; cursorStyle: string },
-    x: number,
-    y: number,
-  ): void
-}
-const transparent = new WeakSet<CanvasRenderingContext2D>()
-
-// Chromium hints and smooths canvas text on macOS, making glyphs ~30% heavier than Ghostty's.
-// Resizing the canvas resets its state, so reapply after every resize.
-// Also clear wherever ghostty-web paints the theme background, so the translucent panel shows through.
-const resize = renderer.resize
-renderer.resize = function (cols, rows) {
-  resize.call(this, cols, rows)
-  const ctx = this.ctx
-  ctx.textRendering = 'geometricPrecision'
-  if (transparent.has(ctx)) return
-  transparent.add(ctx)
-  const fillRect = ctx.fillRect.bind(ctx)
-  ctx.fillRect = (x, y, w, h) =>
-    ctx.fillStyle === this.theme.background.toLowerCase() ? ctx.clearRect(x, y, w, h) : fillRect(x, y, w, h)
-  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
-}
-
-// Inactive panes draw no cursor. ghostty-web only repaints the cursor's row when it moves or blinks,
-// so a pane whose focus changed repaints fully once to clear or restore it.
-const idle = new WeakSet<HTMLCanvasElement>()
-const repaint = new WeakSet<HTMLCanvasElement>()
-const renderCursor = renderer.renderCursor
-renderer.renderCursor = function (x, y) {
-  if (idle.has(this.ctx.canvas)) return
-  if (this.cursorStyle !== 'bar') return renderCursor.call(this, x, y)
-  // A 1px bar like Ghostty's, instead of ghostty-web's 15% of a cell.
-  this.ctx.fillStyle = this.theme.cursor
-  this.ctx.fillRect(x * this.metrics.width, y * this.metrics.height, 1, this.metrics.height)
-}
-const render = renderer.render
-renderer.render = function (buffer, forceAll, ...rest) {
-  render.call(this, buffer, forceAll || repaint.delete(this.ctx.canvas), ...rest)
-}
-
-// Size cells like Ghostty: the font's advance and line height snapped to device pixels.
-// ghostty-web's default rounds up the width of "M", which makes cells 1px wider and rows 2px shorter.
-const measureFont = renderer.measureFont
-renderer.measureFont = function () {
-  const ctx = document.createElement('canvas').getContext('2d')
-  if (!ctx) return measureFont.call(this)
-  ctx.textRendering = 'geometricPrecision'
-  ctx.font = `${this.fontSize}px ${this.fontFamily}`
-  const m = ctx.measureText('M')
-  const snap = (n: number) => Math.round(n * devicePixelRatio) / devicePixelRatio
-  return {
-    width: snap(m.width),
-    height: snap(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent),
-    baseline: snap(m.fontBoundingBoxAscent),
-  }
-}
-
-// ghostty-web only accepts hex colors, so these mirror the app's neutral theme.
-const themes = {
-  dark: {
-    background: '#141414',
-    foreground: '#fafafa',
-    cursor: '#38bdf8', // from the app icon's gradient
-    selectionBackground: '#404040',
-  },
-  light: {
-    background: '#ffffff',
-    foreground: '#0a0a0a',
-    cursor: '#1e3fd8',
-    selectionBackground: '#d4d4d4',
-  },
-}
-
-export type PanelView = 'terminal' | 'diff' | 'browser'
-
-const viewIcons = {
-  terminal: <SquareTerminalIcon />,
-  diff: <FileDiffIcon />,
-  browser: <GlobeIcon />,
-}
 
 // The last pane to show a cursor, so focusing another can sweep the cursor across to it.
 let lastFocused: HTMLCanvasElement | undefined
 
-// Unique across panel remounts, so a late exit from an old shell can't close a new pane.
-let nextPane = 0
-
 function TerminalPane({
   cwd,
+  visible,
   focused,
   split,
   onFocus,
+  onProc,
   onExit,
 }: {
   cwd?: string
+  visible: boolean
   focused: boolean
   split: boolean
   onFocus: () => void
+  onProc: (name: string) => void
   onExit: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const termRef = useRef<Terminal>(null)
-  const focusedRef = useRef(focused)
-  focusedRef.current = focused
+  const [term, setTerm] = useState<Terminal>()
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const latest = useRef({ focused, onProc, onExit })
+  latest.current = { focused, onProc, onExit }
 
+  // A pane keeps its shell for life; a new folder starts new panes.
   useEffect(() => {
     let disposed = false
     const cleanups: (() => void)[] = []
-    const id = nextPane++
 
     ;(async () => {
       await Promise.all([init(), document.fonts.load(`12px ${font}`)])
       if (disposed || !ref.current) return
       const dark = document.documentElement.classList.contains('dark')
-      const term = new Terminal({
+      const t = new Terminal({
         fontSize: 12,
         fontFamily: font,
-        cursorBlink: focused,
+        cursorBlink: latest.current.focused,
         cursorStyle: 'bar',
         theme: dark ? themes.dark : themes.light,
       })
       const fit = new FitAddon()
-      term.loadAddon(fit)
-      term.open(ref.current)
+      t.loadAddon(fit)
+      t.open(ref.current)
       fit.fit()
       fit.observeResize()
-      termRef.current = term
-      const canvas = ref.current.querySelector('canvas')
-      if (canvas) {
-        cleanups.push(cursorTrail(canvas))
-        if (focusedRef.current) lastFocused = canvas
-        else idle.add(canvas)
+      cleanups.push(() => t.dispose())
+      canvas.current = ref.current.querySelector('canvas')
+      if (canvas.current) {
+        cleanups.push(cursorTrail(canvas.current))
+        if (latest.current.focused) lastFocused = canvas.current
+        else idle.add(canvas.current)
       }
 
-      window.api.term.start(id, cwd, term.cols, term.rows)
-      const input = term.onData((data) => window.api.term.input(id, data))
-      const resize = term.onResize(({ cols, rows }) => window.api.term.resize(id, cols, rows))
+      const { id, name } = await window.api.term.start(cwd, t.cols, t.rows)
+      if (disposed) return window.api.term.kill(id)
+      latest.current.onProc(name)
+      const input = t.onData((data) => window.api.term.input(id, data))
+      const resize = t.onResize(({ cols, rows }) => window.api.term.resize(id, cols, rows))
       cleanups.push(
-        window.api.term.onData((pane, data) => pane === id && term.write(data)),
-        window.api.term.onExit((pane) => pane === id && onExit()),
+        window.api.term.onData((pane, data) => pane === id && t.write(data)),
+        window.api.term.onProc((pane, name) => pane === id && latest.current.onProc(name)),
+        window.api.term.onExit((pane) => pane === id && latest.current.onExit()),
         () => input.dispose(),
         () => resize.dispose(),
-        () => term.dispose(),
         () => window.api.term.kill(id),
       )
-      if (focused) term.focus()
+      setTerm(t)
     })()
 
     return () => {
       disposed = true
-      termRef.current = null
       for (const fn of cleanups) fn()
     }
-    // A pane keeps its shell for life; a new folder remounts the whole panel.
   }, [])
 
   // Only the active pane shows a cursor.
   useEffect(() => {
-    const term = termRef.current
-    const canvas = ref.current?.querySelector('canvas')
-    if (!term || !canvas) return
+    const c = canvas.current
+    if (!term || !c) return
     term.options.cursorBlink = focused
     if (focused) {
-      idle.delete(canvas)
-      if (lastFocused && lastFocused !== canvas) sweepCursor(lastFocused, canvas)
-      lastFocused = canvas
-    } else idle.add(canvas)
-    repaint.add(canvas)
+      idle.delete(c)
+      if (lastFocused && lastFocused !== c) sweepCursor(lastFocused, c)
+      lastFocused = c
+    } else idle.add(c)
+    repaint.add(c)
     if (focused) term.focus()
-  }, [focused])
+  }, [term, focused])
+
+  // A hidden pane doesn't draw, even as output arrives; it redraws in full when it shows again.
+  useEffect(() => {
+    const c = canvas.current
+    if (!term || !c) return
+    if (!visible) return void hidden.add(c)
+    hidden.delete(c)
+    repaint.add(c)
+  }, [term, visible])
 
   return (
     <div
@@ -203,78 +128,43 @@ function TerminalPane({
   )
 }
 
-// Panes form a tree of splits; 'row' lays children side by side, 'col' stacks them.
-type Dir = 'row' | 'col'
-type Layout = { pane: number } | { dir: Dir; children: Layout[] }
-type Rect = { x: number; y: number; w: number; h: number }
-
-function splitPane(node: Layout, target: number, dir: Dir, pane: number): Layout {
-  if ('pane' in node) return node.pane === target ? { dir, children: [node, { pane }] } : node
-  const i = node.children.findIndex((c) => 'pane' in c && c.pane === target)
-  if (node.dir === dir && i >= 0) return { dir, children: node.children.toSpliced(i + 1, 0, { pane }) }
-  return { dir: node.dir, children: node.children.map((c) => splitPane(c, target, dir, pane)) }
-}
-
-function removePane(node: Layout, target: number): Layout | undefined {
-  if ('pane' in node) return node.pane === target ? undefined : node
-  const children = node.children.flatMap((c) => removePane(c, target) ?? [])
-  return children.length > 1 ? { dir: node.dir, children } : children[0]
-}
-
-// Flattened to absolute rects (in fractions of the area) so splitting never remounts a pane and kills its shell.
-function rects(node: Layout | undefined, r: Rect = { x: 0, y: 0, w: 1, h: 1 }): [number, Rect][] {
-  if (!node) return []
-  if ('pane' in node) return [[node.pane, r]]
-  const n = node.children.length
-  return node.children.flatMap((c, i) =>
-    rects(
-      c,
-      node.dir === 'row' ? { ...r, x: r.x + (r.w * i) / n, w: r.w / n } : { ...r, y: r.y + (r.h * i) / n, h: r.h / n },
-    ),
-  )
-}
-
-const pct = (n: number) => `${n * 100}%`
-
-const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as const
-
-// The pane touching the active one on the given side, preferring the one level with its centre.
-function neighbour(panes: [number, Rect][], active: number, [dx, dy]: readonly [number, number]) {
-  const cur = panes.find(([p]) => p === active)?.[1]
-  if (!cur) return
-  const eps = 1e-6
-  const [ax, ay] = [cur.x + cur.w / 2, cur.y + cur.h / 2]
-  let best: { pane: number; score: number } | undefined
-  for (const [pane, r] of panes) {
-    const touches =
-      (dx > 0 && Math.abs(r.x - (cur.x + cur.w)) < eps) ||
-      (dx < 0 && Math.abs(r.x + r.w - cur.x) < eps) ||
-      (dy > 0 && Math.abs(r.y - (cur.y + cur.h)) < eps) ||
-      (dy < 0 && Math.abs(r.y + r.h - cur.y) < eps)
-    const overlaps = dx ? r.y < cur.y + cur.h && r.y + r.h > cur.y : r.x < cur.x + cur.w && r.x + r.w > cur.x
-    if (!touches || !overlaps) continue
-    const score = dx ? Math.abs(r.y + r.h / 2 - ay) : Math.abs(r.x + r.w / 2 - ax)
-    if (!best || score < best.score) best = { pane, score }
-  }
-  return best?.pane
-}
-
 export function TerminalPanel({
   cwd,
   thread,
   visible,
   view,
-  onView,
+  doc,
+  onDoc,
   onExit,
 }: {
   cwd?: string
   thread?: string
   visible: boolean
   view: PanelView
-  onView: (view: PanelView) => void
+  // The Markdown file open in the docs view; its file list when undefined.
+  doc?: string
+  onDoc: (doc: string | undefined) => void
   onExit: () => void
 }) {
   const asideRef = useRef<HTMLElement>(null)
+  const [width, setWidth] = useStoredWidth('terminalWidth', Math.round(innerWidth * 0.42))
+  const [layout, setLayout] = useState<Layout | undefined>({ pane: 0 })
+  const [active, setActive] = useState(0)
+  const nextId = useRef(1)
+  // The program each pane's shell has in the foreground, e.g. "nvim"; the header shows the active pane's.
+  const [procs, setProcs] = useState<Record<number, string>>({})
+  const panes = rects(layout)
+
+  // Switching project keeps the panel open and starts over with one fresh shell in the new folder.
+  const [shellCwd, setShellCwd] = useState(cwd)
+  if (cwd !== shellCwd) {
+    setShellCwd(cwd)
+    setProcs({})
+    setLayout({ pane: nextId.current })
+    setActive(nextId.current++)
+  }
+
+  // Mounted on first open and then kept, so switching tabs doesn't reload the page.
   const browserOpened = useRef(false)
   if (view === 'browser') browserOpened.current = true
   // A fresh browser per thread, except when a new thread gets its id on the first send.
@@ -283,24 +173,26 @@ export function TerminalPanel({
     if (browser.current.thread !== undefined) browser.current.key++
     browser.current.thread = thread
   }
-  const [width, setWidth] = useStoredWidth('terminalWidth', Math.round(innerWidth * 0.42))
-  const [layout, setLayout] = useState<Layout | undefined>({ pane: 0 })
-  const [active, setActive] = useState(0)
-  const nextId = useRef(1)
-  const panes = rects(layout)
+
   const split = (dir: Dir) => {
     if (!layout) return
     const pane = nextId.current++
     setLayout(splitPane(layout, active, dir, pane))
     setActive(pane)
   }
-  const close = () => setLayout((l) => l && removePane(l, active))
+  const close = (pane: number) => setLayout((l) => l && removePane(l, pane))
   const focusDir = (d: readonly [number, number]) => {
     const pane = neighbour(panes, active, d)
     if (pane !== undefined) setActive(pane)
   }
-  const latest = useRef({ split, close, focusDir, view })
-  latest.current = { split, close, focusDir, view }
+  const latest = useRef({ split, close, focusDir, view, active })
+  latest.current = { split, close, focusDir, view, active }
+  // Buttons in the header for the shortcuts below.
+  const paneActions = [
+    { label: 'Split right', keys: '⌘D', icon: <Columns2Icon className="size-3.5" />, run: () => split('row') },
+    { label: 'Split down', keys: '⇧⌘D', icon: <Rows2Icon className="size-3.5" />, run: () => split('col') },
+    { label: 'Close pane', keys: '⌘W', icon: <XIcon className="size-3.5" />, run: () => close(active) },
+  ]
 
   useEffect(() => {
     if (panes.length === 0) onExit()
@@ -313,7 +205,8 @@ export function TerminalPanel({
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey) return
       e.stopPropagation()
-      if (e.ctrlKey || latest.current.view !== 'terminal') return
+      const { view, active } = latest.current
+      if (e.ctrlKey || view !== 'terminal') return
       if (e.altKey) {
         // Cmd+Option+Arrow moves focus to the neighbouring pane.
         if (!(e.code in arrows)) return
@@ -324,7 +217,7 @@ export function TerminalPanel({
       // Cmd+D splits right and Cmd+Shift+D splits down, as in Ghostty; Cmd+W closes the active pane.
       // preventDefault also stops the menu's Cmd+W from closing the window.
       if (e.code === 'KeyD') latest.current.split(e.shiftKey ? 'col' : 'row')
-      else if (e.code === 'KeyW' && !e.shiftKey) latest.current.close()
+      else if (e.code === 'KeyW' && !e.shiftKey) latest.current.close(active)
       else return
       e.preventDefault()
     }
@@ -334,78 +227,83 @@ export function TerminalPanel({
   }, [])
 
   return (
+    // No left margin: the chat's scrollbar runs right along the panel edge.
+    // Toggling slides the panel past the window edge with a negative margin of its full width, which is the same
+    // clamp as its sizing classes. Closed, it stays laid out there but invisible, so the terminals keep their size
+    // and nothing redraws when it opens.
     <aside
       ref={asideRef}
       data-slot="side-panel"
       data-open={visible || undefined}
-      className={
+      className={cn(
+        'relative my-2 flex max-w-[70%] min-w-80 shrink-0 duration-300 ease-in-out motion-reduce:transition-none',
+        // Visibility only animates on close: animated on open too, the panel stays hidden for its first frame and
+        // can't take focus then.
         visible
-          // No left margin: the chat's scrollbar runs right along the panel edge, and the 36px rail overlaps the chat's top corner.
-          ? 'relative my-2 mr-2 flex max-w-[70%] min-w-80 shrink-0'
-          : 'hidden'
-      }
-      style={{ width }}
+          ? 'mr-2 transition-[margin-right] starting:mr-(--hidden-margin)'
+          : 'invisible mr-(--hidden-margin) transition-[margin-right,visibility]',
+      )}
+      style={{ width, '--hidden-margin': `calc(-1 * max(20rem, min(${width}px, 70%)))` } as CSSProperties}
     >
       {/* The panel is inset 8px from the window's right edge. */}
       <ResizeHandle
         // Clamp to the same bounds as min-w-80 and max-w-[70%], so dragging back responds immediately.
         onDrag={(x) =>
           setWidth(
-            Math.max(
-              320,
-              Math.min(
-                innerWidth - 8 - x,
-                (asideRef.current?.parentElement?.clientWidth ?? innerWidth) * 0.7,
-              ),
-            ),
+            Math.max(320, Math.min(innerWidth - 8 - x, (asideRef.current?.parentElement?.clientWidth ?? innerWidth) * 0.7)),
           )
         }
         className="left-0"
       />
-      {/* The rail is a tab joined to the content, with a concave corner filling the gap beneath it. */}
-      <div className="absolute top-0 right-full z-20 flex flex-col items-center gap-1 rounded-l-2xl bg-sidebar/50 py-2 pl-2 backdrop-blur-xl [-webkit-app-region:drag]">
-        <div className="absolute top-full right-0 size-4 bg-sidebar/50 backdrop-blur-xl [mask-image:radial-gradient(circle_at_0_100%,transparent_16px,black_16.5px)]" />
-        {(['terminal', 'diff', 'browser'] as const).map((v) => (
-          <button
-            type="button"
-            key={v}
-            onClick={() => onView(v)}
-            aria-pressed={view === v}
-            aria-label={v}
-            title={v[0].toUpperCase() + v.slice(1)}
-            className="rounded-md p-1.5 text-muted-foreground outline-none [-webkit-app-region:no-drag] focus-visible:ring-3 focus-visible:ring-ring/50 hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground [&_svg]:size-4"
-          >
-            {viewIcons[v]}
-          </button>
-        ))}
-      </div>
-      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl rounded-tl-none bg-sidebar/50 backdrop-blur-xl">
-        {/* Hidden with `invisible`, not `hidden`, so the terminals keep their size and don't reflow. */}
-        {/* Each pane is padded 4px, so neighbours sit 8px apart and 8px from the panel edge. */}
-        <div className={cn('relative m-1 min-h-0 flex-1', view !== 'terminal' && 'invisible')}>
-          {panes.map(([pane, r]) => (
-            <div
-              key={pane}
-              className="absolute p-1"
-              style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
-            >
-              <TerminalPane
-                cwd={cwd}
-                focused={visible && view === 'terminal' && active === pane}
-                split={panes.length > 1}
-                onFocus={() => setActive(pane)}
-                onExit={() => setLayout((l) => l && removePane(l, pane))}
-              />
+      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-sidebar/50 backdrop-blur-xl">
+        {/* Hidden with `invisible`, not `hidden`, so the terminals keep their size and don't reflow. Each view below
+            covers the panel with its own header. */}
+        <div className={cn('flex min-h-0 flex-1 flex-col', view !== 'terminal' && 'invisible')}>
+          <PanelHeader>
+            <span className="truncate px-1 text-xs text-muted-foreground" title={cwd}>
+              {procs[active] ?? (cwd && folderName(cwd))}
+            </span>
+            <div className="ml-auto flex shrink-0 items-center text-muted-foreground">
+              {paneActions.map(({ label, keys, icon, run }) => (
+                <Button key={label} variant="ghost" size="icon-sm" onClick={run} aria-label={label} title={`${label} (${keys})`}>
+                  {icon}
+                </Button>
+              ))}
             </div>
-          ))}
+            <div className="mx-1 h-4 w-px shrink-0 bg-foreground/10" />
+          </PanelHeader>
+          {/* Each pane is padded 4px, so neighbours sit 8px apart and 8px from the panel edge. */}
+          <div className="relative mx-1 mb-1 min-h-0 flex-1">
+            {panes.map(([pane, r]) => (
+              <div
+                key={pane}
+                className="absolute p-1"
+                style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
+              >
+                <TerminalPane
+                  cwd={cwd}
+                  visible={visible && view === 'terminal'}
+                  focused={visible && view === 'terminal' && active === pane}
+                  split={panes.length > 1}
+                  onFocus={() => setActive(pane)}
+                  onProc={(name) => setProcs((p) => ({ ...p, [pane]: name }))}
+                  onExit={() => close(pane)}
+                />
+              </div>
+            ))}
+          </div>
         </div>
         {view === 'diff' && (
           <div className="absolute inset-0 flex flex-col">
-            <DiffView cwd={cwd} visible={visible} />
+            <DiffView key={cwd} cwd={cwd} visible={visible} />
           </div>
         )}
-        {/* Mounted on first open and then kept, so switching tabs doesn't reload the page. */}
-        {(view === 'browser' || browserOpened.current) && (
+        {view === 'docs' && (
+          <div className="absolute inset-0 flex flex-col">
+            <DocsView key={cwd} cwd={cwd} visible={visible} doc={doc} onDoc={onDoc} />
+          </div>
+        )}
+        {browserOpened.current && (
           <div className={cn('absolute inset-0 flex flex-col', view !== 'browser' && 'invisible')}>
             <BrowserView key={browser.current.key} thread={thread} />
           </div>
