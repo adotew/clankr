@@ -35,14 +35,8 @@
   font-display: swap;
 }
 
-@font-face {
-  font-family: Heming;
-  src: url('./fonts/heming-variable.ttf') format('truetype');
-  font-weight: 100 900;
-}
-
 @theme {
-  --font-heming: Heming, system-ui;
+  --font-mono: 'JetBrainsMono Nerd Font', ui-monospace, monospace;
 }
 
 @custom-variant dark (&:is(.dark *));
