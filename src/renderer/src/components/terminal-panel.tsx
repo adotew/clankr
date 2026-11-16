@@ -131,6 +131,7 @@ function TerminalPane({
 export function TerminalPanel({
   cwd,
   thread,
+  browserOpen,
   visible,
   view,
   doc,
@@ -139,6 +140,7 @@ export function TerminalPanel({
 }: {
   cwd?: string
   thread?: string
+  browserOpen?: { url: string }
   visible: boolean
   view: PanelView
   // The Markdown file open in the docs view; its file list when undefined.
@@ -305,7 +307,7 @@ export function TerminalPanel({
         )}
         {browserOpened.current && (
           <div className={cn('absolute inset-0 flex flex-col', view !== 'browser' && 'invisible')}>
-            <BrowserView key={browser.current.key} thread={thread} />
+            <BrowserView key={browser.current.key} thread={thread} open={browserOpen} />
           </div>
         )}
       </div>

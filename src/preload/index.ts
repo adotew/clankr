@@ -37,6 +37,7 @@ const api: Api = {
   onChanged: (cb) => listen('changed', cb),
   onEvent: (cb) => listen<[string, AgentEvent]>('agent:event', cb),
   onCommand: (cb) => listen<[Command]>('command', cb),
+  onBrowserOpen: (cb) => listen<[string, string]>('browser-open', cb),
   term: {
     start: (cwd, cols, rows) => ipcRenderer.invoke('term-start', cwd, cols, rows),
     input: (id, data) => ipcRenderer.send('term-input', id, data),

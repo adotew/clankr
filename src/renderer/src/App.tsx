@@ -21,6 +21,7 @@ import { Palette, type PaletteRow } from '@/components/palette'
 import { PanelRail, type PanelView } from '@/components/panel'
 import { PromptInput, type PromptInputHandle } from '@/components/prompt-input'
 import { AskCard, Reply, type Ask } from '@/components/reply'
+import { saveUrl } from '@/components/browser-view'
 import { TerminalPanel } from '@/components/terminal-panel'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Message, MessageContent } from '@/components/ui/message'
@@ -159,6 +160,10 @@ export function App() {
   const [panelView, setPanelView] = useState<PanelView>('terminal')
   // The Markdown file open in the panel's docs view; its file list when undefined.
   const [doc, setDoc] = useState<string>()
+  // A page an agent opened in the thread showing.
+  const [browserOpen, setBrowserOpen] = useState<{ url: string }>()
+  // Pages agents opened in other threads that have no session ID yet to keep them under.
+  const agentUrls = useRef(new Map<string, string>())
   const [palette, setPalette] = useState<'commands' | 'threads'>()
   const [branch, setBranch] = useState<string>()
   // Effort is remembered per model, so switching models brings back that model's level.
@@ -265,6 +270,16 @@ export function App() {
         else update(thread, (s) => ({ items: applyEvent(s.items, e) }))
       }),
       window.api.onCommand((command) => runRef.current(command)),
+      // Only the agent's own thread changes: a thread in the background keeps the page for when it's shown.
+      window.api.onBrowserOpen((key, url) => {
+        const id = sessionsRef.current[key]?.id
+        if (key === activeKeyRef.current) {
+          setBrowserOpen({ url })
+          setTerminal('open')
+          setPanelView('browser')
+        } else if (id) saveUrl(id, url)
+        else agentUrls.current.set(key, url)
+      }),
     ]
     return () => {
       window.removeEventListener('keydown', onKey, true)
@@ -287,6 +302,7 @@ export function App() {
     if (next.backend && backendOf(model) !== next.backend) pickModel(`${next.backend}:default`)
     setSessions({ ...sessionsRef.current, [next.key]: next })
     setActiveKey(next.key)
+    setBrowserOpen(undefined)
   }
 
   // Starts a fresh thread in a project folder, or in "Chat" when `cwd` is undefined.
@@ -399,6 +415,12 @@ export function App() {
       store('bots', next)
     }
     if (r) update(key, () => ({ id: r.sessionId, cwd: r.cwd, backend: r.backend, context: r.context }))
+    const url = agentUrls.current.get(key)
+    if (url && r?.sessionId) {
+      agentUrls.current.delete(key)
+      if (key === activeKeyRef.current) setBrowserOpen({ url })
+      else saveUrl(r.sessionId, url)
+    }
     // Refreshed first, so a new thread finishing in the background moves into the list without leaving the dock.
     await refreshThreads()
     if (key !== activeKeyRef.current && !sessionsRef.current[key]?.busy) drop(key)
@@ -625,6 +647,7 @@ export function App() {
           <TerminalPanel
             cwd={active.cwd}
             thread={active.id}
+            browserOpen={browserOpen}
             visible={terminal === 'open'}
             view={panelView}
             doc={doc}

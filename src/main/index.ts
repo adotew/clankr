@@ -3,7 +3,8 @@ import { spawn, type IPty } from '@lydell/node-pty'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import {
@@ -18,7 +19,8 @@ import {
   type Options,
   type Query,
 } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentEvent, Answer, Backend, Command, Context, Model, PiInfo, Settings, SlashCommand, Thread, ThreadRef, Turn } from '../shared'
+import { allowed, toUrl, type AgentEvent, type Answer, Backend, Command, Context, Model, PiInfo, Settings, type SlashCommand, type Thread, type ThreadRef, type Turn } from '../shared'
+import openScript from './clankr-open.sh?raw'
 import { modified, piCommands, piEfforts, piModels, PiRpc, piVersion, readPiSession, shellEnv, toEvents as piEvents } from './pi'
 
 // Marks sessions created by this app so other Claude Code sessions stay out of the dock.
@@ -73,6 +75,41 @@ nativeTheme.on('updated', () => {
   for (const w of BrowserWindow.getAllWindows()) w.setBackgroundColor(background())
 })
 
+// `clankr-open <url>` lets any agent show a page in its own thread's browser panel: the app puts the script on the
+// agent's PATH and the thread's key in its environment, and the script sends both over this socket.
+const browserSock = join(tmpdir(), `clankr-${process.pid}.sock`)
+const binDir = join(app.getPath('userData'), 'bin')
+const browserPrompt =
+  'To show the user a web page, e.g. a local dev server or docs, run `clankr-open <url>`. It opens in the browser panel next to this chat.'
+// Only project threads have the panel.
+const browserEnv = (run: Run, env: NodeJS.ProcessEnv) =>
+  isScratch(run.cwd)
+    ? env
+    : { ...env, PATH: `${binDir}:${env.PATH ?? ''}`, CLANKR_SOCK: browserSock, CLANKR_THREAD: run.key }
+
+const browserServer = createServer((socket) => {
+  let buf = ''
+  socket.on('error', () => {})
+  socket.setEncoding('utf8').on('data', (chunk: string) => {
+    buf += chunk
+    const end = buf.indexOf('\n')
+    if (end < 0) {
+      if (buf.length > 8192) socket.destroy()
+      return
+    }
+    const line = buf.slice(0, end)
+    const tab = line.indexOf('\t')
+    const run = tab > 0 ? runs.get(line.slice(0, tab)) : undefined
+    const url = toUrl(line.slice(tab + 1).trim())
+    if (!run || isScratch(run.cwd)) socket.end('error: not running in a clankr project thread\n')
+    else if (!allowed(url)) socket.end('error: only http and https URLs can be opened\n')
+    else {
+      win.webContents.send('browser-open', run.key, url)
+      socket.end(`opened ${url}\n`)
+    }
+  })
+})
+
 const isWeb = (url: string) => /^https?:\/\//i.test(url)
 
 app.on('web-contents-created', (_, contents) => {
@@ -101,6 +138,7 @@ const load = (w: BrowserWindow, hash = '') => {
 // A thread the page has sent to, keyed by the page's thread key, so threads run in parallel. `sessionId` is a
 // Claude session ID or a Pi session file, depending on `backend`; unset until a new thread's first turn starts.
 type Run = {
+  key: string
   cwd: string
   backend: Backend
   sessionId?: string
@@ -450,7 +488,7 @@ ipcMain.handle(
         cwd = join(scratchRoot, randomUUID())
         await mkdir(cwd, { recursive: true })
       }
-      run = { cwd, backend, sessionId: thread.id, busy: false }
+      run = { key: thread.key, cwd, backend, sessionId: thread.id, busy: false }
       runs.set(thread.key, run)
     }
     run.backend = backend
@@ -470,7 +508,12 @@ ipcMain.handle(
 async function sendPi(run: Run, emit: (e: AgentEvent) => void, prompt: string, model: string, effort?: string) {
   const isNew = !run.sessionId
   if (!run.pi) {
-    const rpc = new PiRpc(piBin, run.sessionId ? ['--session', run.sessionId] : [], run.cwd, await shellEnv)
+    const rpc = new PiRpc(
+      piBin,
+      [...(isScratch(run.cwd) ? [] : ['--append-system-prompt', browserPrompt]), ...(run.sessionId ? ['--session', run.sessionId] : [])],
+      run.cwd,
+      browserEnv(run, await shellEnv),
+    )
     rpc.onRecord = (r) =>
       piEvents(r).forEach((e) => {
         if (e.kind === 'ask')
@@ -533,6 +576,10 @@ async function sendClaude(run: Run, emit: (e: AgentEvent) => void, prompt: strin
       effort: effort as EffortLevel | undefined,
       includePartialMessages: true,
       ...claudeOptions,
+      ...(!isScratch(run.cwd) && {
+        env: browserEnv(run, process.env),
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: browserPrompt },
+      }),
     },
   }))
   try {
@@ -677,7 +724,7 @@ const command = (action: Command, label: string, accelerator: string): MenuItemC
   click: () => win.webContents.send('command', action),
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
@@ -737,10 +784,16 @@ app.whenReady().then(() => {
   win.on('enter-full-screen', () => win.webContents.send('fullscreen', true))
   win.on('leave-full-screen', () => win.webContents.send('fullscreen', false))
   load(win)
+  await mkdir(binDir, { recursive: true })
+  await writeFile(join(binDir, 'clankr-open'), openScript)
+  await chmod(join(binDir, 'clankr-open'), 0o755)
+  await rm(browserSock, { force: true })
+  browserServer.listen(browserSock)
 })
 
 app.on('window-all-closed', () => {
   for (const pty of shells.values()) pty.kill()
   for (const run of runs.values()) closePi(run)
+  browserServer.close()
   app.quit()
 })

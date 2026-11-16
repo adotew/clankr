@@ -3,22 +3,14 @@ import { ArrowLeftIcon, ArrowRightIcon, RotateCwIcon } from 'lucide-react'
 
 import { PanelHeader } from '@/components/panel'
 import { store, stored } from '@/lib/ui'
-
-// Text that doesn't look like an address, e.g. with spaces or without a dot or port, is a DuckDuckGo search.
-const toUrl = (s: string) =>
-  /^([a-z]+:\/\/|about:)/i.test(s)
-    ? s
-    : /\s/.test(s) || !/[.:]|^localhost$/.test(s)
-      ? `https://duckduckgo.com/?q=${encodeURIComponent(s)}`
-      : (/^(localhost|127\.|\[::1\])/.test(s) ? 'http://' : 'https://') + s
-// Web pages only: no files or app schemes.
-const allowed = (url: string) => /^(https?:|about:blank$)/i.test(url)
+import { allowed, toUrl } from '../../../shared'
 
 // Each thread remembers its own page.
 const urls = () => stored<Record<string, string>>('browserUrls', {})
-const saveUrl = (thread: string, url: string) => store('browserUrls', { ...urls(), [thread]: url })
+export const saveUrl = (thread: string, url: string) => store('browserUrls', { ...urls(), [thread]: url })
 
-export function BrowserView({ thread }: { thread?: string }) {
+// `open` is a page an agent opened in this thread.
+export function BrowserView({ thread, open }: { thread?: string; open?: { url: string } }) {
   const ref = useRef<Electron.WebviewTag>(null)
   const [src, setSrc] = useState(() => (thread && urls()[thread]) || '')
   const url = useRef(src)
@@ -48,6 +40,12 @@ export function BrowserView({ thread }: { thread?: string }) {
   useEffect(() => {
     if (thread && url.current) saveUrl(thread, url.current)
   }, [thread])
+
+  useEffect(() => {
+    if (!open) return
+    if (ref.current) ref.current.src = open.url
+    else setSrc(open.url)
+  }, [open])
 
   const button =
     'rounded-md p-1 text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground [&_svg]:size-3.5'

@@ -1,5 +1,15 @@
 export type Backend = 'claude' | 'pi'
 
+// Text that doesn't look like an address, e.g. with spaces or without a dot or port, is a DuckDuckGo search.
+export const toUrl = (s: string) =>
+  /^([a-z]+:\/\/|about:)/i.test(s)
+    ? s
+    : /\s/.test(s) || !/[.:]|^localhost$/.test(s)
+      ? `https://duckduckgo.com/?q=${encodeURIComponent(s)}`
+      : (/^(localhost|127\.|\[::1\])/.test(s) ? 'http://' : 'https://') + s
+// Web pages only: no files or app schemes.
+export const allowed = (url: string) => /^(https?:|about:blank$)/i.test(url)
+
 export type AgentEvent =
   | { kind: 'user' | 'text' | 'delta' | 'error'; text: string }
   | { kind: 'tool'; id: string; name: string; input: Record<string, unknown> }
@@ -77,6 +87,8 @@ export type Api = {
   onChanged: (cb: () => void) => () => void
   onEvent: (cb: (thread: string, e: AgentEvent) => void) => () => void
   onCommand: (cb: (command: Command) => void) => () => void
+  // An agent ran `clankr-open` in the thread with this key.
+  onBrowserOpen: (cb: (thread: string, url: string) => void) => () => void
   term: {
     // Returns the new shell's id and its program name, e.g. "zsh".
     start: (cwd: string | undefined, cols: number, rows: number) => Promise<{ id: number; name: string }>
