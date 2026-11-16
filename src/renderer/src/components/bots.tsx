@@ -1,5 +1,12 @@
-import { memo, useEffect, useLayoutEffect, useRef } from 'react'
-import { BotAvatar as LibBotAvatar, botAvatarPalette, botAvatarTypes, type BotAvatarState, type BotAvatarType } from 'bot-avatars'
+import { forwardRef, memo, useEffect, useLayoutEffect, useRef } from 'react'
+import {
+  BotAvatar as LibBotAvatar,
+  botAvatarPalette,
+  botAvatarTypes,
+  type BotAvatarProps,
+  type BotAvatarState,
+  type BotAvatarType,
+} from 'bot-avatars'
 import { FolderIcon, GitBranchIcon } from 'lucide-react'
 
 import { Dock, DockIcon } from '@/components/ui/dock'
@@ -7,7 +14,11 @@ import { cn } from '@/lib/utils'
 
 // Updating a bot redraws it after forcing a layout, and parents re-render on every streamed reply chunk; so only
 // renders that change a prop go through. Pass a stable `style`.
-export const BotAvatar = memo(LibBotAvatar)
+// Every bot wears the prompt eyes: a terminal `>_` that blinks through its glyphs. Props still win, so a caller
+// can ask for the plain dots instead.
+export const BotAvatar = memo(
+  forwardRef<HTMLCanvasElement, BotAvatarProps>((props, ref) => <LibBotAvatar ref={ref} eyes="prompt" {...props} />),
+)
 
 // Each thread has its own bot: a body and a colour, mixed freely.
 export type Bot = { type: BotAvatarType; color: string }
