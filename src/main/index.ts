@@ -293,12 +293,14 @@ async function loadModels(): Promise<Model[]> {
   return loaded
 }
 
-ipcMain.handle('models', () => {
+ipcMain.handle('models', async (_, all?: boolean) => {
   models ??= loadModels().catch((err) => {
     models = undefined
     throw err
   })
-  return models
+  const list = await models
+  const scoped = all ? [] : list.filter((m) => settings.models?.includes(m.value))
+  return scoped.length ? scoped : list
 })
 
 const folderOf = (dir: string) => (isScratch(dir) ? undefined : basename(dir))
@@ -358,16 +360,22 @@ ipcMain.handle('read-doc', (_, path: string) =>
 ipcMain.handle('settings', () => settings)
 
 ipcMain.handle('save-settings', async (_, next: Settings) => {
+  // Only turning a backend on or off needs fresh models and Pi processes; scoping models just re-filters.
+  const backends = next.claude !== settings.claude || next.pi !== settings.pi
   settings = next
-  for (const run of runs.values()) if (!run.busy) closePi(run)
+  if (backends) for (const run of runs.values()) if (!run.busy) closePi(run)
   await writeFile(settingsFile, JSON.stringify(settings, null, 2))
-  changed()
+  if (backends) changed()
+  else notify()
 })
 
 // Settings or Pi logins changed: drop cached models and commands and tell every window to reload them.
 function changed() {
   models = undefined
   commandCache.clear()
+  notify()
+}
+const notify = () => {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send('changed')
 }
 

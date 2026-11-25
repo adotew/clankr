@@ -32,7 +32,8 @@ export type Thread = {
 // `value` is prefixed with its backend, e.g. "claude:default" or "pi:anthropic/claude-opus-5-5".
 // `efforts` lists the effort/thinking levels the model accepts, weakest first; absent when it has none.
 export type Model = { value: string; displayName: string; backend: Backend; group: string; efforts?: string[] }
-export type Settings = { claude: boolean; pi: boolean }
+// `models`: the models the picker offers, like Pi's scoped models; none picked offers them all.
+export type Settings = { claude: boolean; pi: boolean; models?: string[] }
 export type PiInfo = { ok: boolean; version: string }
 // A skill or command the agent runs when a prompt starts with `/name`.
 export type SlashCommand = { name: string; description?: string }
@@ -49,7 +50,8 @@ export type ThreadRef = { key: string; id?: string; cwd?: string; backend?: Back
 export type Command = 'newThread' | 'threads' | 'commands' | 'terminal' | 'diff' | 'browser' | 'docs' | 'effort' | 'chat'
 
 export type Api = {
-  models: () => Promise<Model[]>
+  // `all` skips the scoping, for the settings page.
+  models: (all?: boolean) => Promise<Model[]>
   threads: () => Promise<Thread[]>
   pickFolder: () => Promise<string | undefined>
   // Starts in `cwd`, or the home folder; empty if cancelled.

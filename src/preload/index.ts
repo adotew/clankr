@@ -11,7 +11,7 @@ const listen = <A extends unknown[]>(channel: string, cb: (...args: A) => void) 
 }
 
 const api: Api = {
-  models: () => ipcRenderer.invoke('models'),
+  models: (all) => ipcRenderer.invoke('models', all),
   threads: () => ipcRenderer.invoke('threads'),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   pickFiles: (cwd) => ipcRenderer.invoke('pick-files', cwd),
