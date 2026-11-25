@@ -69,6 +69,8 @@ type Session = {
   items: Item[]
   asks: Ask[]
   busy: boolean
+  // Prompts sent while a turn runs; each goes out when the one before it ends.
+  queue: string[]
   // Unknown until the thread's first turn in this window.
   context?: Context
 }
@@ -79,6 +81,7 @@ const blank = (key: string, cwd?: string): Session => ({
   items: [],
   asks: [],
   busy: false,
+  queue: [],
 })
 
 const backendOf = (model: string) => model.split(':')[0] as Backend
@@ -290,7 +293,7 @@ export function App() {
       }),
       window.api.onEvent((thread, e) => {
         if (e.kind === 'ask') update(thread, (s) => ({ asks: [...s.asks, e] }))
-        else if (e.kind === 'done') update(thread, () => ({ asks: [], busy: false }))
+        else if (e.kind === 'done') update(thread, () => ({ asks: [] }))
         else update(thread, (s) => ({ items: applyEvent(s.items, e) }))
       }),
       window.api.onCommand((command) => runRef.current(command)),
@@ -322,7 +325,7 @@ export function App() {
   // dock and is forgotten when the turn ends.
   const activate = (next: Session) => {
     const prev = sessionsRef.current[activeKeyRef.current]
-    if (prev && !prev.busy && prev.key !== next.key) drop(prev.key)
+    if (prev && !prev.busy && !prev.queue.length && prev.key !== next.key) drop(prev.key)
     if (next.backend && backendOf(model) !== next.backend) pickModel(`${next.backend}:default`)
     setSessions({ ...sessionsRef.current, [next.key]: next })
     setActiveKey(next.key)
@@ -427,8 +430,33 @@ export function App() {
 
   const send = async (text: string) => {
     if (/^\/new\s*$/.test(text)) return newThread()
-    const { key, id, cwd, backend } = active
-    // The new thread takes the pending bot; the next new thread gets another.
+    const key = activeKeyRef.current
+    if (sessionsRef.current[key]?.busy) return update(key, (s) => ({ queue: [...s.queue, text] }))
+    // Busy until the queue is empty, not just until `done`: main reports `done` before `send` returns, and a prompt sent
+    // in between must queue rather than start a second loop.
+    try {
+      for (let next: string | undefined = text; next !== undefined; next = dequeue(key)) await runTurn(key, next)
+    } finally {
+      update(key, () => ({ busy: false }))
+    }
+    // Refreshed first, so a new thread finishing in the background moves into the list without leaving the dock.
+    await refreshThreads()
+    if (key !== activeKeyRef.current && !sessionsRef.current[key]?.busy) drop(key)
+  }
+
+  const dequeue = (key: string) => {
+    const [next, ...rest] = sessionsRef.current[key]?.queue ?? []
+    if (next !== undefined) update(key, () => ({ queue: rest }))
+    return next
+  }
+
+  const runTurn = async (key: string, text: string) => {
+    const s = sessionsRef.current[key]
+    if (!s) return
+    const { id, cwd, backend } = s
+    // The new thread takes the pending bot; the next new thread gets another. Read live: queued turns run in the first
+    // send's closure.
+    const pending = pendingRef.current
     if (key === pending.key) {
       flight.current = hero.current?.getBoundingClientRect()
       setKeyBots({ ...keyBotsRef.current, [key]: pending.bot })
@@ -455,9 +483,6 @@ export function App() {
       if (key === activeKeyRef.current) setBrowserOpen({ url })
       else saveUrl(r.sessionId, url)
     }
-    // Refreshed first, so a new thread finishing in the background moves into the list without leaving the dock.
-    await refreshThreads()
-    if (key !== activeKeyRef.current && !sessionsRef.current[key]?.busy) drop(key)
   }
 
   const reply = (id: string, answer: Answer) => {
@@ -529,7 +554,12 @@ export function App() {
       onSend={send}
       onAttach={() => window.api.pickFiles(active.folder && active.cwd)}
       onCommands={slashCommands}
-      onStop={() => window.api.stop(activeKey)}
+      queue={active.queue}
+      onUnqueue={(i) => update(activeKey, (s) => ({ queue: s.queue.filter((_, j) => j !== i) }))}
+      onStop={() => {
+        update(activeKey, () => ({ queue: [] }))
+        window.api.stop(activeKey)
+      }}
     />
   )
 

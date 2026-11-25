@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
-import { ArrowUpIcon, FileIcon, PaperclipIcon, SquareIcon, XIcon } from 'lucide-react'
+import { ArrowUpIcon, CornerDownRightIcon, FileIcon, PaperclipIcon, SquareIcon, XIcon } from 'lucide-react'
 
 import { ModelPicker } from '@/components/model-picker'
 import { Button } from '@/components/ui/button'
@@ -30,13 +30,17 @@ export function PromptInput(props: {
   onAttach: () => Promise<string[]>
   // The skills and commands a prompt can start with, as `/name`.
   onCommands: () => Promise<SlashCommand[]>
+  // Prompts waiting for the running turn to end.
+  queue: string[]
+  onUnqueue: (index: number) => void
   onStop: () => void
 }) {
   const { busy, context } = props
   const [text, setText] = useState('')
   const [files, setFiles] = useState<string[]>([])
   const textarea = useRef<HTMLTextAreaElement>(null)
-  const canSend = !busy && (text.trim().length > 0 || files.length > 0)
+  // While a turn runs, sending queues the prompt.
+  const canSend = text.trim().length > 0 || files.length > 0
 
   useImperativeHandle(props.ref, () => ({ focus: () => textarea.current?.focus() }), [])
 
@@ -194,6 +198,26 @@ export function PromptInput(props: {
               ))}
             </div>
           )}
+          {props.queue.length > 0 && (
+            <ul aria-label="Queued prompts" className="flex flex-col gap-0.5 px-3 pt-3">
+              {props.queue.map((q, i) => (
+                <li key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <CornerDownRightIcon className="size-3 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate" title={q}>
+                    {q}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => props.onUnqueue(i)}
+                    aria-label="Remove queued prompt"
+                    className="rounded p-0.5 outline-none hover:bg-foreground/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {files.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-3">
               {files.map((file) => (
@@ -240,7 +264,6 @@ export function PromptInput(props: {
               variant="ghost"
               size="icon-sm"
               onClick={async () => add(await props.onAttach())}
-              disabled={busy}
               aria-label="Attach files"
               title="Attach files"
               className="mr-auto"
@@ -315,12 +338,18 @@ export function PromptInput(props: {
                 </div>
               </div>
             )}
-            {busy ? (
+            {busy && !canSend ? (
               <Button className="size-8 rounded-full" size="icon" onClick={props.onStop} aria-label="Stop">
                 <SquareIcon className="fill-current" />
               </Button>
             ) : (
-              <Button type="submit" className="size-8 rounded-full" size="icon" disabled={!canSend} aria-label="Send">
+              <Button
+                type="submit"
+                className="size-8 rounded-full"
+                size="icon"
+                disabled={!canSend}
+                aria-label={busy ? 'Queue' : 'Send'}
+              >
                 <ArrowUpIcon />
               </Button>
             )}
