@@ -135,7 +135,7 @@ export function Roster({ entries }: { entries: RosterEntry[] }) {
           <DockIcon
             key={entry.key}
             // A size container, so the bot can fill whatever size the dock springs the icon to.
-            className={cn('group relative [container-type:size]', entry.selected ? 'bg-foreground/10' : 'hover:bg-foreground/5')}
+            className={cn('group relative [container-type:size]', entry.away ? '' : entry.selected ? 'bg-foreground/10' : 'hover:bg-foreground/5')}
           >
             <RosterBot entry={entry} />
           </DockIcon>
