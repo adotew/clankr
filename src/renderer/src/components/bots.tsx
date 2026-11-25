@@ -1,4 +1,4 @@
-import { forwardRef, memo, useEffect, useLayoutEffect, useRef } from 'react'
+import { forwardRef, memo, useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react'
 import {
   BotAvatar as LibBotAvatar,
   botAvatarPalette,
@@ -10,6 +10,7 @@ import {
 import { FolderIcon, GitBranchIcon } from 'lucide-react'
 
 import { Dock, DockIcon } from '@/components/ui/dock'
+import { popup } from '@/lib/ui'
 import { cn } from '@/lib/utils'
 
 // Updating a bot redraws it after forcing a layout, and parents re-render on every streamed reply chunk; so only
@@ -39,6 +40,68 @@ export function botFromId(id: string): Bot {
 export function randomBot(taken: Bot[]): Bot {
   const free = botAvatarTypes.filter((t) => !taken.some((b) => b.type === t))
   return { type: pick(free.length ? free : botAvatarTypes), color: pick(colors) }
+}
+
+const swatch = (on: boolean) =>
+  cn(
+    'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+    on ? 'bg-foreground/15' : 'hover:bg-foreground/10',
+  )
+
+// Picks a bot's body and colour. Mounted only while open, since every body preview is a live canvas.
+export function BotPicker({
+  bot,
+  anchor,
+  onChange,
+  onClose,
+}: {
+  bot: Bot
+  anchor: DOMRect
+  onChange: (bot: Bot) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => ref.current?.showPopover(), [])
+  const position: CSSProperties = { left: anchor.left + anchor.width / 2, top: anchor.bottom + 8, translate: '-50% 0' }
+  return (
+    <div
+      ref={ref}
+      popover="auto"
+      onToggle={(e) => e.newState === 'closed' && onClose()}
+      style={position}
+      className={cn('fixed inset-auto m-0 w-80 flex-col gap-5 rounded-xl p-3 open:flex', popup)}
+    >
+      {/* Bodies and colours share one six-column grid, so the swatches line up under the bodies. */}
+      <div className="grid grid-cols-6 gap-1">
+        {botAvatarTypes.map((type) => (
+          <button
+            key={type}
+            type="button"
+            title={type}
+            onClick={() => onChange({ ...bot, type })}
+            className={cn('flex justify-center rounded-md p-1', swatch(type === bot.type))}
+          >
+            <BotAvatar type={type} color={bot.color} state="sleeping" size={32} style={block} />
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-6 gap-x-1 gap-y-2.5">
+        {colors.map((color) => (
+          <button
+            key={color}
+            type="button"
+            aria-label={color}
+            onClick={() => onChange({ ...bot, color })}
+            style={{ background: color }}
+            className={cn(
+              'size-6 justify-self-center rounded-full outline-none ring-offset-2 ring-offset-popover focus-visible:ring-2 focus-visible:ring-ring/50',
+              color === bot.color && 'ring-2 ring-foreground/60',
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // `folder` and `branch` are set for project threads; `status` says what a busy thread's bot is doing.

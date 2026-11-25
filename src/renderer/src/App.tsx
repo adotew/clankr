@@ -15,7 +15,16 @@ import {
 } from 'lucide-react'
 import type { BotAvatarState } from 'bot-avatars'
 
-import { block, BotAvatar, botFromId, randomBot, Roster, type Bot, type RosterEntry } from '@/components/bots'
+import {
+  block,
+  BotAvatar,
+  botFromId,
+  BotPicker,
+  randomBot,
+  Roster,
+  type Bot,
+  type RosterEntry,
+} from '@/components/bots'
 import { DocLinksContext } from '@/components/markdown'
 import { Palette, type PaletteRow } from '@/components/palette'
 import { PanelRail, type PanelView } from '@/components/panel'
@@ -146,6 +155,8 @@ export function App() {
   const dockKeys = useRef(new Map<string, string>())
   const keyOf = (id: string) => dockKeys.current.get(id) ?? id
   const botOf = (key: string, id?: string) => (id && bots[id]) || keyBots[key] || (id ? botFromId(id) : pending.bot)
+  // Where the new thread's bot was clicked to pick its look.
+  const [picking, setPicking] = useState<DOMRect>()
 
   // Set on mount: the last project, or "Chat" before any project was opened.
   const [sessions, setSessions, sessionsRef] = useRefState(() => ({ [pendingRef.current.key]: blank(pendingRef.current.key) }))
@@ -374,7 +385,7 @@ export function App() {
   }
 
   // Where the empty thread's large bot was when the first prompt went out; its dock slot flies in from there.
-  const hero = useRef<HTMLDivElement>(null)
+  const hero = useRef<HTMLButtonElement>(null)
   const flight = useRef<DOMRect>(undefined)
   // A bot works while its thread's turn runs, looks around while it waits for an answer or is open, and sleeps
   // otherwise.
@@ -517,6 +528,14 @@ export function App() {
       />
       <div className="relative flex h-svh min-w-0 flex-row overflow-clip">
         <Roster entries={entries} />
+        {picking && (
+          <BotPicker
+            bot={pending.bot}
+            anchor={picking}
+            onChange={(bot) => setPending({ ...pendingRef.current, bot })}
+            onClose={() => setPicking(undefined)}
+          />
+        )}
         <div className="relative flex min-w-0 flex-1 flex-col">
           {/* Window drag strip; once the chat has messages, it fades them out under the thread title. Stops short of the 10px scrollbar so the thumb stays on top. */}
           <div
@@ -545,9 +564,15 @@ export function App() {
             <div className="relative flex flex-1 flex-col items-center justify-center gap-8 px-6 pb-16">
               <div className="relative flex flex-col items-center gap-3">
                 {/* The new thread's dock bot, shown large here; it flies to its dock slot with the first prompt. */}
-                <div ref={hero} className="mb-3">
+                <button
+                  ref={hero}
+                  type="button"
+                  title="Change look"
+                  onClick={(e) => setPicking(e.currentTarget.getBoundingClientRect())}
+                  className="mb-3 rounded-2xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
                   <BotAvatar {...pending.bot} size={64} style={block} />
-                </div>
+                </button>
                 <h1 className="text-4xl tracking-tight text-foreground/85">What should we work on?</h1>
               </div>
               <div className="relative flex w-full max-w-3xl flex-col gap-2">
