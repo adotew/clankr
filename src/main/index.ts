@@ -642,8 +642,11 @@ function pollProcs() {
     return
   }
   for (const [id, pty] of shells) {
-    const name = basename(pty.process).replace(/^-/, '')
-    if (!name || procNames.get(id) === name) continue
+    // node-pty reports no process while the shell is exiting or the lookup fails.
+    const proc = pty.process
+    if (!proc) continue
+    const name = basename(proc).replace(/^-/, '')
+    if (!name || procNames.get(id) === name || win.isDestroyed()) continue
     procNames.set(id, name)
     win.webContents.send('term:proc', id, name)
   }
