@@ -534,16 +534,21 @@ async function sendPi(run: Run, emit: (e: AgentEvent) => void, prompt: string, m
   }
   // Without an effort, set_model has already applied pi's own default level for the model.
   if (effort) await rpc.call({ type: 'set_thinking_level', level: effort })
-  // Listen before prompting: a fast run can settle before the prompt's response arrives.
-  const settled = new Promise<void>((resolve, reject) => {
-    run.settle = (err) => (err ? reject(err) : resolve())
-  })
-  settled.catch(() => {})
-  try {
-    const { disposition } = await rpc.call<{ disposition: string }>({ type: 'prompt', message: prompt })
-    if (disposition !== 'handled') await settled
-  } finally {
-    run.settle = undefined
+  // `prompt` only runs extension commands, templates and skills; pi's built-in /compact has its own RPC command.
+  const compact = prompt.match(/^\/compact(\s[\s\S]*)?$/)
+  if (compact) await rpc.call({ type: 'compact', customInstructions: compact[1]?.trim() || undefined })
+  else {
+    // Listen before prompting: a fast run can settle before the prompt's response arrives.
+    const settled = new Promise<void>((resolve, reject) => {
+      run.settle = (err) => (err ? reject(err) : resolve())
+    })
+    settled.catch(() => {})
+    try {
+      const { disposition } = await rpc.call<{ disposition: string }>({ type: 'prompt', message: prompt })
+      if (disposition !== 'handled') await settled
+    } finally {
+      run.settle = undefined
+    }
   }
   const state = await rpc.call<{ sessionFile?: string }>({ type: 'get_state' })
   const file = (run.sessionId = state.sessionFile)
@@ -577,6 +582,10 @@ async function sendClaude(run: Run, emit: (e: AgentEvent) => void, prompt: strin
       // Subagent internals are skipped; their final report arrives as the parent tool's result.
       if ('parent_tool_use_id' in msg && msg.parent_tool_use_id) continue
       if (msg.type === 'system' && msg.subtype === 'init') run.sessionId = msg.session_id
+      else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+        const { pre_tokens, post_tokens } = msg.compact_metadata
+        emit({ kind: 'compacted', before: pre_tokens, after: post_tokens })
+      }
       else if (msg.type === 'stream_event') {
         const e = msg.event
         if (e.type === 'content_block_start' && e.content_block.type === 'text') emit({ kind: 'text', text: '' })

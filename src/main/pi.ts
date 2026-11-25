@@ -84,6 +84,7 @@ export type PiRecord =
       placeholder?: string
       notifyType?: string
     }
+  | { type: 'compaction_end'; result?: { tokensBefore: number; estimatedTokensAfter?: number } }
   | { type: 'agent_settled' }
 
 // Skips lines that aren't JSON, e.g. a session file's half-written last line.
@@ -201,6 +202,10 @@ export function toEvents(r: PiRecord): AgentEvent[] {
       return [{ kind: 'tool', id: r.toolCallId, name: r.toolName, input: r.args }]
     case 'tool_execution_end':
       return [{ kind: 'result', id: r.toolCallId, text: toText(r.result.content), isError: r.isError }]
+    case 'compaction_end':
+      return r.result
+        ? [{ kind: 'compacted', before: r.result.tokensBefore, after: r.result.estimatedTokensAfter }]
+        : []
     case 'extension_ui_request':
       if (r.method === 'notify' && r.notifyType === 'error') return [{ kind: 'error', text: r.message ?? '' }]
       if (r.method === 'confirm') return [{ kind: 'ask', id: r.id, title: r.title ?? '', detail: r.message }]

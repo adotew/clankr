@@ -16,6 +16,8 @@ export type AgentEvent =
   | { kind: 'result'; id: string; text: string; isError: boolean }
   // A question for the user: yes/no by default, a choice when `options` is set, free text when `input` is.
   | { kind: 'ask'; id: string; title: string; detail?: string; options?: string[]; input?: boolean }
+  // The agent's context was summarized; token counts when the backend reports them.
+  | { kind: 'compacted'; before?: number; after?: number }
   | { kind: 'done' }
 
 // `folder` is undefined for "Chat" threads; `branch` is the folder's current git branch, if it has one.
@@ -36,7 +38,8 @@ export type Model = { value: string; displayName: string; backend: Backend; grou
 export type Settings = { claude: boolean; pi: boolean; models?: string[] }
 export type PiInfo = { ok: boolean; version: string }
 // A skill or command the agent runs when a prompt starts with `/name`.
-export type SlashCommand = { name: string; description?: string }
+// `run`: picking it from the menu sends it right away instead of completing it.
+export type SlashCommand = { name: string; description?: string; run?: boolean }
 export type Answer = boolean | string | undefined
 // How full the agent's context window is; `tokens` is null right after a compaction, until the next reply.
 export type Context = { tokens: number | null; window: number }

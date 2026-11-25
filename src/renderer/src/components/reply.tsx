@@ -11,6 +11,8 @@ import { Trace } from '@/components/ui/trace'
 import { groupReplies, type Item as ReplyItem } from '@/lib/items'
 import type { AgentEvent, Answer } from '../../../shared'
 
+const k = (n: number) => `${Math.round(n / 1000)}k`
+
 export type Ask = Extract<AgentEvent, { kind: 'ask' }>
 
 function CopyButton({ text }: { text: string }) {
@@ -56,6 +58,15 @@ export function Reply({ replies, streaming, waiting }: { replies: ReplyItem[]; s
               <p key={i} className="flex items-center gap-2 text-sm text-destructive">
                 <CircleAlertIcon className="size-4" /> {group.text}
               </p>
+            )
+          if (group.kind === 'compacted')
+            return (
+              <div key={i} className="flex items-center gap-3 text-xs text-muted-foreground">
+                <hr className="flex-1 border-foreground/10" />
+                Context compacted
+                {group.before !== undefined && ` · ${k(group.before)}${group.after === undefined ? '' : ` → ${k(group.after)}`}`}
+                <hr className="flex-1 border-foreground/10" />
+              </div>
             )
           return (
             <Markdown key={i} streaming={streaming && i === groups.length - 1}>

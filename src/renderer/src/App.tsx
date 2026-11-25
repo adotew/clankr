@@ -46,7 +46,15 @@ import {
 import { applyEvent, toTurns, type Item } from '@/lib/items'
 import { folderName, popup, store, stored } from '@/lib/ui'
 import { cn } from '@/lib/utils'
-import type { Answer, Backend, Command, Context, Model, Thread } from '../../shared'
+import type { Answer, Backend, Command, Context, Model, SlashCommand, Thread } from '../../shared'
+
+// Commands the app handles itself, or (`compact`) handles the same way on both backends.
+const builtins: SlashCommand[] = [
+  { name: 'new', description: 'Start a new thread', run: true },
+  { name: 'compact', description: 'Summarize the conversation to free up context' },
+]
+// Backend commands the built-ins replace.
+const replaced = new Set(['new', 'clear', 'compact'])
 
 // A thread open in the window or running in the background. `key` names it before it has an `id`, which a new
 // thread's first turn returns. `cwd` is unset until a "Chat" thread gets its scratch folder; `folder` is unset for
@@ -408,7 +416,17 @@ export function App() {
     }
   }
 
+  const slashCommands = async () => {
+    const theirs = await window.api
+      .commands(active.backend ?? backendOf(model), active.folder && active.cwd)
+      .catch(() => [])
+    // A thread without a session has nothing to compact.
+    const ours = builtins.filter((c) => c.name !== 'compact' || active.id)
+    return [...ours, ...theirs.filter((c) => !replaced.has(c.name))]
+  }
+
   const send = async (text: string) => {
+    if (/^\/new\s*$/.test(text)) return newThread()
     const { key, id, cwd, backend } = active
     // The new thread takes the pending bot; the next new thread gets another.
     if (key === pending.key) {
@@ -510,7 +528,7 @@ export function App() {
       onEffortChange={pickEffort}
       onSend={send}
       onAttach={() => window.api.pickFiles(active.folder && active.cwd)}
-      onCommands={() => window.api.commands(active.backend ?? backendOf(model), active.folder && active.cwd)}
+      onCommands={slashCommands}
       onStop={() => window.api.stop(activeKey)}
     />
   )

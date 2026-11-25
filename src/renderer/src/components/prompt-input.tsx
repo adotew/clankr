@@ -77,7 +77,10 @@ export function PromptInput(props: {
   }, [current])
 
   const complete = (c: SlashCommand) => {
-    setText(`/${c.name} `)
+    if (c.run) {
+      props.onSend(`/${c.name}`)
+      setText('')
+    } else setText(`/${c.name} `)
     textarea.current?.focus()
   }
 

@@ -1,7 +1,10 @@
 import type { AgentEvent } from '../../../shared'
 import type { ToolItem } from '@/components/tool-step'
 
-export type Item = { kind: 'user' | 'assistant' | 'error'; text: string } | ToolItem
+export type Item =
+  | { kind: 'user' | 'assistant' | 'error'; text: string }
+  | Extract<AgentEvent, { kind: 'compacted' }>
+  | ToolItem
 // One user prompt and everything the agent did in reply.
 export type Turn = { prompt?: string; replies: Item[] }
 
@@ -19,6 +22,7 @@ export function applyEvent(items: Item[], e: AgentEvent): Item[] {
         : [...items, { kind: 'assistant', text: e.text }]
     }
     case 'tool':
+    case 'compacted':
       return [...items, e]
     case 'result':
       return items.map((x) =>
