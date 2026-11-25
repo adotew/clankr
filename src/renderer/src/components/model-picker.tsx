@@ -2,9 +2,36 @@ import { useEffect, useRef, useState } from 'react'
 import { Popover } from '@base-ui/react/popover'
 import { CheckIcon, SearchIcon } from 'lucide-react'
 
+import claudeLogo from '@/assets/claude.svg'
+import geminiLogo from '@/assets/gemini.svg'
 import { InputGroupButton } from '@/components/ui/input-group'
 import { cn } from '@/lib/utils'
 import type { Backend, Model } from '../../../shared'
+
+// Brand marks from Simple Icons (CC0).
+const logos: [RegExp, string, string][] = [
+  [/^Claude\s+/, 'Claude', claudeLogo],
+  [/^Gemini\s+/, 'Gemini', geminiLogo],
+]
+
+// The model's name with a leading "Claude" or "Gemini" shown as its logo.
+function ModelName({ name }: { name: string }) {
+  const logo = logos.find(([re]) => re.test(name))
+  if (!logo) return name
+  const [re, label, url] = logo
+  return (
+    <span className="flex items-center gap-2">
+      {/* A mask, so the logo takes the text's colour. */}
+      <span
+        role="img"
+        aria-label={label}
+        style={{ mask: `url("${url}") center / contain no-repeat` }}
+        className="size-4 shrink-0 bg-current"
+      />
+      {name.replace(re, '')}
+    </span>
+  )
+}
 
 const effortLabel = (effort: string) => (effort === 'xhigh' ? 'X-High' : effort[0].toUpperCase() + effort.slice(1))
 
@@ -75,7 +102,7 @@ export function ModelPicker(props: {
           />
         }
       >
-        {modelName}
+        <ModelName name={modelName} />
         {effortName && <span className="text-muted-foreground">{effortName}</span>}
       </Popover.Trigger>
       <Popover.Portal>
