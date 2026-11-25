@@ -62,15 +62,20 @@ export function BotPicker({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => ref.current?.showPopover(), [])
-  const position: CSSProperties = { left: anchor.left + anchor.width / 2, top: anchor.bottom + 8, translate: '-50% 0' }
+  const position: CSSProperties = { left: anchor.left + anchor.width / 2, top: anchor.bottom + 16, translate: '-50% 0' }
   return (
     <div
       ref={ref}
       popover="auto"
       onToggle={(e) => e.newState === 'closed' && onClose()}
       style={position}
-      className={cn('fixed inset-auto m-0 w-80 flex-col gap-5 rounded-xl p-3 open:flex', popup)}
+      className={cn('fixed inset-auto m-0 w-80 flex-col gap-5 overflow-visible rounded-xl p-3 open:flex', popup)}
     >
+      {/* The speech bubble's tail, pointing at the bot: a square turned on its corner, cut to its upper half. */}
+      <span
+        aria-hidden
+        className="absolute -top-2 left-1/2 size-4 -translate-x-1/2 rotate-45 border-t border-l border-foreground/10 bg-popover/80 [clip-path:polygon(0_0,100%_0,0_100%)]"
+      />
       {/* Bodies and colours share one six-column grid, so the swatches line up under the bodies. */}
       <div className="grid grid-cols-6 gap-1">
         {botAvatarTypes.map((type) => (
