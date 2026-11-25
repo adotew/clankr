@@ -750,6 +750,7 @@ app.whenReady().then(async () => {
         label: 'File',
         submenu: [
           command('newThread', 'New Thread', 'CmdOrCtrl+N'),
+          command('chat', 'New Chat', 'CmdOrCtrl+Shift+C'),
           command('threads', 'Switch Thread…', 'CmdOrCtrl+P'),
           command('commands', 'Commands…', 'CmdOrCtrl+Shift+P'),
           { type: 'separator' },

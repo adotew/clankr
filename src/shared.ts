@@ -46,7 +46,7 @@ export type ThreadRef = { key: string; id?: string; cwd?: string; backend?: Back
 
 // Menu items whose shortcut the page handles itself while it has focus; the menu only fires them otherwise,
 // e.g. while the browser panel's page has focus.
-export type Command = 'newThread' | 'threads' | 'commands' | 'terminal' | 'diff' | 'browser' | 'docs' | 'effort'
+export type Command = 'newThread' | 'threads' | 'commands' | 'terminal' | 'diff' | 'browser' | 'docs' | 'effort' | 'chat'
 
 export type Api = {
   models: () => Promise<Model[]>

@@ -93,7 +93,7 @@ const shortcuts: Record<string, Command> = {
   KeyP: 'threads',
   KeyN: 'newThread',
 }
-const shiftShortcuts: Record<string, Command> = { KeyP: 'commands', KeyE: 'effort', KeyM: 'docs' }
+const shiftShortcuts: Record<string, Command> = { KeyP: 'commands', KeyE: 'effort', KeyM: 'docs', KeyC: 'chat' }
 
 function MenuItem({
   label,
@@ -231,6 +231,7 @@ export function App() {
     if (command === 'terminal' || command === 'diff' || command === 'browser' || command === 'docs') toggle(command)
     else if (command === 'threads' || command === 'commands') togglePalette(command)
     else if (command === 'newThread') newThread()
+    else if (command === 'chat') chooseProject(undefined)
     else if (command === 'effort' && !active.busy) cycleEffort()
   }
   const runRef = useRef(run)
@@ -446,7 +447,7 @@ export function App() {
     { key: 'new', label: 'New thread', icon: <PlusIcon />, hint: '⌘N', run: newThread },
     { key: 'threads', label: 'Switch thread…', icon: <MessagesSquareIcon />, hint: '⌘P', run: () => setPalette('threads') },
     { key: 'folder', label: 'Open folder…', icon: <FolderOpenIcon />, run: pickFolder },
-    { key: 'none', label: 'New chat', icon: <MessageCircleIcon />, run: () => chooseProject(undefined) },
+    { key: 'none', label: 'New chat', icon: <MessageCircleIcon />, hint: '⇧⌘C', run: () => chooseProject(undefined) },
     { key: 'terminal', label: 'Toggle terminal', icon: <SquareTerminalIcon />, hint: '⌘J', disabled: !project, run: () => toggle('terminal') },
     { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘G', disabled: !project, run: () => toggle('diff') },
     { key: 'browser', label: 'Toggle browser', icon: <GlobeIcon />, hint: '⌘B', disabled: !project, run: () => toggle('browser') },
