@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
-import { SearchIcon } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { BotIcon, BoxIcon, SearchIcon, XIcon } from 'lucide-react'
+
+import { cn } from '@/lib/utils'
 
 import type { Model, PiInfo, Settings } from '../../../shared'
 
@@ -41,17 +43,16 @@ function ScopedModels({ settings, save }: { settings: Settings; save: (next: Set
 
   return (
     <>
-      <div className="mt-4 flex items-baseline justify-between">
-        <h3 className="text-xs font-medium text-muted-foreground">Models</h3>
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="text-xs text-muted-foreground">
+          {scoped.length ? `The model picker offers the ${scoped.length} checked.` : 'Check the models you use; the model picker offers only those.'}
+        </p>
         {scoped.length > 0 && (
           <button type="button" onClick={() => save({ ...settings, models: [] })} className="text-xs text-muted-foreground hover:text-foreground">
             Clear
           </button>
         )}
       </div>
-      <p className="-mt-2 text-xs text-muted-foreground">
-        {scoped.length ? `The model picker offers ${scoped.length} checked.` : 'Check the models you use; the model picker offers only those.'}
-      </p>
       <div className="flex items-center gap-2 rounded-lg bg-foreground/5 px-2.5">
         <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
         <input
@@ -85,14 +86,49 @@ function ScopedModels({ settings, save }: { settings: Settings; save: (next: Set
   )
 }
 
-// Rendered in its own window (loaded with #settings).
-export function SettingsPage() {
-  const [settings, setSettings] = useState<Settings>()
+function Agents({ settings, save }: { settings: Settings; save: (next: Settings) => void }) {
   const [info, setInfo] = useState<PiInfo>()
+  useEffect(() => void window.api.piInfo().then(setInfo), [])
+  return (
+    <>
+      <Toggle
+        title="Claude"
+        description="Claude Agent SDK, signed in with your Claude subscription through Claude Code."
+        checked={settings.claude}
+        onChange={(claude) => save({ ...settings, claude })}
+      />
+      <Toggle
+        title="Pi"
+        description="Your Pi install, with its settings, extensions, skills and logins. Manage providers with pi in the terminal."
+        checked={settings.pi}
+        onChange={(pi) => save({ ...settings, pi })}
+      />
+      {settings.pi && (
+        <p className={cn('-mt-2 pl-7 text-xs', info && !info.ok ? 'text-destructive' : 'text-muted-foreground')}>
+          {info ? (info.ok ? `pi ${info.version}` : `pi not found: ${info.version}`) : 'Checking…'}
+        </p>
+      )}
+    </>
+  )
+}
+
+type Props = { settings: Settings; save: (next: Settings) => void }
+const pages: { id: string; label: string; icon: ReactNode; Page: (props: Props) => ReactNode }[] = [
+  { id: 'agents', label: 'Agents', icon: <BotIcon />, Page: Agents },
+  { id: 'models', label: 'Models', icon: <BoxIcon />, Page: ScopedModels },
+]
+
+// A window over the app: a page list on the left, the chosen page on the right. Esc or a click outside closes it.
+export function SettingsPage({ onClose }: { onClose: () => void }) {
+  const [settings, setSettings] = useState<Settings>()
+  const [pageId, setPageId] = useState(pages[0].id)
+  const page = pages.find((p) => p.id === pageId) ?? pages[0]
 
   useEffect(() => {
     window.api.settings().then(setSettings)
-    window.api.piInfo().then(setInfo)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   const save = (next: Settings) => {
@@ -101,35 +137,51 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex h-svh flex-col">
-      <header className="flex h-12 shrink-0 items-center justify-center text-sm font-medium [-webkit-app-region:drag]">
-        Settings
-      </header>
-      <main className="flex-1 overflow-y-auto">
-        {settings && (
-          <section className="mx-auto flex max-w-lg flex-col gap-4 px-6 pt-2 pb-6">
-            <h3 className="text-xs font-medium text-muted-foreground">Agents</h3>
-            <Toggle
-              title="Claude"
-              description="Claude Agent SDK, signed in with your Claude subscription through Claude Code."
-              checked={settings.claude}
-              onChange={(claude) => save({ ...settings, claude })}
-            />
-            <Toggle
-              title="Pi"
-              description="Your Pi install, with its settings, extensions, skills and logins. Manage providers with pi in the terminal."
-              checked={settings.pi}
-              onChange={(pi) => save({ ...settings, pi })}
-            />
-            {settings.pi && (
-              <p className={info && !info.ok ? '-mt-2 pl-7 text-xs text-destructive' : '-mt-2 pl-7 text-xs text-muted-foreground'}>
-                {info ? (info.ok ? `pi ${info.version}` : `pi not found: ${info.version}`) : 'Checking…'}
-              </p>
-            )}
-            <ScopedModels settings={settings} save={save} />
-          </section>
-        )}
-      </main>
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal
+        aria-label="Settings"
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-[min(36rem,100%)] w-[min(48rem,100%)] overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-2xl ring-1 ring-foreground/10"
+      >
+        <nav aria-label="Settings pages" className="flex w-44 shrink-0 flex-col gap-0.5 border-r border-foreground/10 p-2 pt-3">
+          {pages.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              aria-current={p.id === page.id ? 'page' : undefined}
+              onClick={() => setPageId(p.id)}
+              className={cn(
+                'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-4',
+                p.id === page.id ? 'bg-foreground/10 text-foreground' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
+              )}
+            >
+              {p.icon}
+              {p.label}
+            </button>
+          ))}
+        </nav>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex shrink-0 items-center justify-end p-2">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close settings"
+              title="Close (Esc)"
+              className="rounded-md p-1 text-muted-foreground outline-none hover:bg-foreground/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-4"
+            >
+              <XIcon />
+            </button>
+          </header>
+          <main className="flex-1 overflow-y-auto">
+            <section className="flex flex-col gap-4 px-6 pb-6">
+              <h2 className="text-lg font-medium">{page.label}</h2>
+              {settings && <page.Page settings={settings} save={save} />}
+            </section>
+          </main>
+        </div>
+      </div>
     </div>
   )
 }

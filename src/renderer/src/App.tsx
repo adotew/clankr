@@ -27,6 +27,7 @@ import {
 } from '@/components/bots'
 import { DocLinksContext } from '@/components/markdown'
 import { Palette, type PaletteRow } from '@/components/palette'
+import { SettingsPage } from '@/components/settings'
 import { PanelRail, type PanelView } from '@/components/panel'
 import { PromptInput, type PromptInputHandle } from '@/components/prompt-input'
 import { AskCard, Reply, type Ask } from '@/components/reply'
@@ -92,6 +93,7 @@ const shortcuts: Record<string, Command> = {
   KeyB: 'browser',
   KeyP: 'threads',
   KeyN: 'newThread',
+  Comma: 'settings',
 }
 const shiftShortcuts: Record<string, Command> = { KeyP: 'commands', KeyE: 'effort', KeyM: 'docs', KeyC: 'chat' }
 
@@ -163,6 +165,7 @@ export function App() {
   const [activeKey, setActiveKey, activeKeyRef] = useRefState<string>(() => pendingRef.current.key)
   const active = sessions[activeKey] ?? blank(activeKey)
 
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [models, setModels] = useState<Model[]>([])
   const [model, setModel] = useState(() => stored('model', 'claude:default'))
   const [recents, setRecents] = useState(() => stored<string[]>('recentProjects', []))
@@ -232,6 +235,7 @@ export function App() {
     else if (command === 'threads' || command === 'commands') togglePalette(command)
     else if (command === 'newThread') newThread()
     else if (command === 'chat') chooseProject(undefined)
+    else if (command === 'settings') setSettingsOpen((open) => !open)
     else if (command === 'effort' && !active.busy) cycleEffort()
   }
   const runRef = useRef(run)
@@ -452,7 +456,7 @@ export function App() {
     { key: 'diff', label: 'Toggle diff', icon: <GitCompareIcon />, hint: '⌘G', disabled: !project, run: () => toggle('diff') },
     { key: 'browser', label: 'Toggle browser', icon: <GlobeIcon />, hint: '⌘B', disabled: !project, run: () => toggle('browser') },
     { key: 'docs', label: 'Toggle docs', icon: <FileTextIcon />, hint: '⇧⌘M', disabled: !project, run: () => toggle('docs') },
-    { key: 'settings', label: 'Settings', icon: <SettingsIcon />, hint: '⌘,', run: window.api.openSettings },
+    { key: 'settings', label: 'Settings', icon: <SettingsIcon />, hint: '⌘,', run: () => setSettingsOpen(true) },
   ]
   const threadRows: PaletteRow[] = threads.map((t) => ({
     key: t.id,
@@ -691,6 +695,7 @@ export function App() {
             className="top-3.5 right-4"
           />
         )}
+        {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
       </div>
     </DocLinksContext>
   )

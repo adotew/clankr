@@ -47,7 +47,7 @@ export type ThreadRef = { key: string; id?: string; cwd?: string; backend?: Back
 
 // Menu items whose shortcut the page handles itself while it has focus; the menu only fires them otherwise,
 // e.g. while the browser panel's page has focus.
-export type Command = 'newThread' | 'threads' | 'commands' | 'terminal' | 'diff' | 'browser' | 'docs' | 'effort' | 'chat'
+export type Command = 'newThread' | 'threads' | 'commands' | 'terminal' | 'diff' | 'browser' | 'docs' | 'effort' | 'chat' | 'settings'
 
 export type Api = {
   // `all` skips the scoping, for the settings page.
@@ -74,7 +74,6 @@ export type Api = {
   settings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   piInfo: () => Promise<PiInfo>
-  openSettings: () => void
   openExternal: (url: string) => void
   // Uncommitted changes in `cwd` as a unified patch; undefined when it isn't a git repo.
   diff: (cwd: string) => Promise<string | undefined>

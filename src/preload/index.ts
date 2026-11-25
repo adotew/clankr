@@ -27,7 +27,6 @@ const api: Api = {
   settings: () => ipcRenderer.invoke('settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   piInfo: () => ipcRenderer.invoke('pi-info'),
-  openSettings: () => ipcRenderer.send('open-settings'),
   openExternal: (url) => ipcRenderer.send('open-external', url),
   diff: (cwd) => ipcRenderer.invoke('diff', cwd),
   branch: (cwd) => ipcRenderer.invoke('branch', cwd),

@@ -67,7 +67,6 @@ const claudeOptions: Options = {
 }
 
 let win: BrowserWindow
-let settingsWin: BrowserWindow | undefined
 
 // Matches --background in styles.css, so resizing never flashes white before the page repaints.
 const background = () => (nativeTheme.shouldUseDarkColors ? '#141414' : '#ffffff')
@@ -130,9 +129,9 @@ app.on('web-contents-created', (_, contents) => {
   })
 })
 
-const load = (w: BrowserWindow, hash = '') => {
-  if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL + hash)
-  else w.loadFile(join(import.meta.dirname, '../renderer/index.html'), { hash })
+const load = (w: BrowserWindow) => {
+  if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL)
+  else w.loadFile(join(import.meta.dirname, '../renderer/index.html'))
 }
 
 // A thread the page has sent to, keyed by the page's thread key, so threads run in parallel. `sessionId` is a
@@ -379,23 +378,6 @@ const notify = () => {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send('changed')
 }
 
-const openSettings = () => {
-  if (settingsWin) return settingsWin.focus()
-  settingsWin = new BrowserWindow({
-    width: 520,
-    height: 640,
-    minWidth: 420,
-    minHeight: 400,
-    parent: win,
-    title: 'Settings',
-    titleBarStyle: 'hiddenInset',
-    backgroundColor: background(),
-    webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs') },
-  })
-  settingsWin.on('closed', () => (settingsWin = undefined))
-  load(settingsWin, '#settings')
-}
-ipcMain.on('open-settings', openSettings)
 ipcMain.on('open-external', (_, url: string) => {
   if (isWeb(url)) shell.openExternal(url)
 })
@@ -743,7 +725,7 @@ app.whenReady().then(async () => {
         submenu: [
           { role: 'about' },
           { type: 'separator' },
-          { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings },
+          command('settings', 'Settings…', 'CmdOrCtrl+,'),
           { type: 'separator' },
           { role: 'services' },
           { type: 'separator' },

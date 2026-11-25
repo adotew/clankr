@@ -1,6 +1,5 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
-import { SettingsPage } from '@/components/settings'
 import 'streamdown/styles.css'
 import './styles.css'
 
@@ -23,6 +22,4 @@ document.addEventListener(
   { capture: true, passive: true },
 )
 
-createRoot(document.getElementById('root')!).render(
-  location.hash === '#settings' ? <SettingsPage /> : <App />,
-)
+createRoot(document.getElementById('root')!).render(<App />)
