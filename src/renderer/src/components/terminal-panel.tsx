@@ -53,7 +53,7 @@ function TerminalPane({
         fontSize: 12,
         fontFamily: font,
         cursorBlink: latest.current.focused,
-        cursorStyle: 'bar',
+        cursorStyle: 'block',
         theme: dark ? themes.dark : themes.light,
       })
       const fit = new FitAddon()
